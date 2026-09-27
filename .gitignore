@@ -39,3 +39,4 @@ sequence.seq
 marge/logs/
 .venv/
 *.pyc
+web/.cache/

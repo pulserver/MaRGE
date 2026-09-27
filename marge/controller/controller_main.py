@@ -18,6 +18,10 @@ import marge.configs.hw_config as hw
 
 class MainController(MainWindow):
     def __init__(self, *args, **kwargs):
+        # As the console of pulserver's virtual scanner, MaRGE drives no MaRCoS
+        # hardware, as in demo mode.
+        if console_mode():
+            kwargs["demo"] = True
         super(MainController, self).__init__(*args, **kwargs)
 
         self.set_session(self.session)
@@ -44,7 +48,7 @@ class MainController(MainWindow):
                 self.toolbar_sequences.startAcquisition(seq_name="Localizer")
 
     def set_demo(self, demo):
-        self.demo = demo
+        self.demo = demo or console_mode()
 
     def set_session(self, session):
         # Set window title
@@ -55,6 +59,10 @@ class MainController(MainWindow):
             sequence.session = session
 
     def initializeThread(self):
+        # The sniffers run the waiting list on the MaRCoS server, which a
+        # console of pulserver's virtual scanner does not have.
+        if console_mode():
+            return
         # Start the sniffer
         thread = threading.Thread(target=self.history_list.waitingForRun)
         thread.start()
