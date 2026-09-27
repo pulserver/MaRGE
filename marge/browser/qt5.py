@@ -40,6 +40,7 @@ def install() -> None:
             setattr(QtWidgets, name, getattr(QtGui, name))
     QtWidgets.QFileDialog.Options = lambda *flags: QtWidgets.QFileDialog.Option(0)
     QtCore.Qt.MidButton = QtCore.Qt.MouseButton.MiddleButton
+    _dialogs(QtWidgets)
 
     # qtpy keeps the first binding it finds imported, so it settles before the alias exists.
     import qtpy.QtCore  # noqa: F401
@@ -87,6 +88,48 @@ def _unscoped_enums(module: types.ModuleType) -> None:
                             setattr(klass, member.name, member)
                         except (AttributeError, TypeError):
                             pass
+
+
+def _dialogs(QtWidgets: types.ModuleType) -> None:  # noqa: N803 -- the module's name
+    """Replace the dialogs that wait for an answer, which would hold the tab's only thread.
+
+    A menu pops up and answers through its actions' signals. A message box
+    shows without waiting and answers Ok. The tab's file system is its own, so
+    a file dialog answers as if cancelled, as does a text prompt.
+    """
+    from PyQt6.QtCore import Qt
+
+    menu = QtWidgets.QMenu
+
+    def popup(self: Any, position: Any = None, *args: Any) -> None:
+        self.popup(position if position is not None else self.pos())
+
+    menu.exec = menu.exec_ = popup
+
+    def cancelled_file(*args: Any, **kwargs: Any) -> tuple[str, str]:
+        print("A browser tab has no files to choose from.")
+        return "", ""
+
+    files = QtWidgets.QFileDialog
+    files.getOpenFileName = files.getSaveFileName = staticmethod(cancelled_file)
+    files.getOpenFileNames = staticmethod(lambda *args, **kwargs: ([], ""))
+    files.getExistingDirectory = staticmethod(lambda *args, **kwargs: cancelled_file()[0])
+    QtWidgets.QInputDialog.getText = staticmethod(lambda *args, **kwargs: ("", False))
+
+    box = QtWidgets.QMessageBox
+    for name, icon in (
+        ("information", box.Icon.Information),
+        ("warning", box.Icon.Warning),
+        ("critical", box.Icon.Critical),
+    ):
+
+        def show(parent: Any, title: str, text: str, *args: Any, _icon: Any = icon, **kwargs: Any) -> Any:
+            message = box(_icon, title, text, box.StandardButton.Ok, parent)
+            message.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            message.open()
+            return box.StandardButton.Ok
+
+        setattr(box, name, staticmethod(show))
 
 
 def _thread_classes(QtCore: types.ModuleType) -> None:  # noqa: N803 -- the module's name
