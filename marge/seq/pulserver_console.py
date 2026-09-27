@@ -45,6 +45,12 @@ ORIENTATIONS = {
     "sagittal": np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
 }
 
+#: The protocol's field-of-view entries along the logical readout, phase and
+#: slice axes, which MaRGE plans as its ``fov``, in cm.
+FOV_SIZE = ("fov", "phase_fov", "slice_thickness")
+#: Centimetres per unit of a field-of-view entry.
+CM_PER_UNIT = {"mm": 0.1, "cm": 1.0, "m": 100.0}
+
 _EDITABLE = ("float", "int", "bool", "stringlist")
 
 
@@ -454,6 +460,7 @@ def _localizer_class(base: type, gateway: Any) -> type:
             self.addParameter(key="seqName", string="Localizer", val="Localizer")
             self.addParameter(key="toMaRGE", val=True)
             self.addParameter(key="pulserverConsole", val=True)
+            self.addParameter(key="fov", val=[25.6, 25.6, 0.5])
             self.files: list[bytes] = []
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
@@ -470,7 +477,11 @@ def _localizer_class(base: type, gateway: Any) -> type:
 def _plugin_class(
     base: type, gateway: Any, plugin: str, entries: Mapping[str, Mapping[str, Any]]
 ) -> type:
-    names = shown(entries)
+    sizes = [name for name in FOV_SIZE if name in shown(entries)]
+    names = [name for name in shown(entries) if name not in sizes]
+
+    def cm_per_unit(name: str) -> float:
+        return CM_PER_UNIT.get(entries[name].get("unit", ""), CM_PER_UNIT["mm"])
 
     class PluginSequence(_console_class(base)):
         def __init__(self) -> None:
@@ -483,6 +494,13 @@ def _plugin_class(
                 unit = entry.get("unit", "")
                 label = f"{name} ({unit})" if unit else name
                 self.addParameter(key=name, string=label, val=entry["value"], units=1, field="SEQ")
+            fov = [
+                entries[name]["value"] * cm_per_unit(name) if name in sizes else 0.0
+                for name in FOV_SIZE
+            ]
+            self.addParameter(
+                key="fov", string="FOV (readout, phase, slice) (cm)", val=fov, units=1, field="IM"
+            )
             self.addParameter(
                 key="orientation", string="Orientation", val="axial", units=1, field="IM"
             )
@@ -505,6 +523,9 @@ def _plugin_class(
                 self.mapVals["dfov"],
             )
             values = {name: self.mapVals[name] for name in names}
+            for index, name in enumerate(FOV_SIZE):
+                if name in sizes:
+                    values[name] = float(self.mapVals["fov"][index]) / cm_per_unit(name)
             block = format_values(values, entries, rotation, offset)
             generated = await _answer(gateway.request("generate", plugin=plugin, block=block))
             if generated["status"] != 0:

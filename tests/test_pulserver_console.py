@@ -18,6 +18,8 @@ LISTING = """PROTOCOL
 TE: int|dropdown|8000|1000|80000|10|us|-2|5000|8000
 bandwidth: float|typein|250000.0|1000.0|1000000.0|1.0|Hz
 nx: int|typein|128|32|512|2|
+fov: float|typein|250.0|50.0|500.0|0.1|mm
+phase_fov: float|typein|200.0|50.0|500.0|0.1|mm
 fatsat: bool|false
 readout: stringlist|1|cartesian|radial
 note: description|two\\nlines
@@ -53,7 +55,9 @@ def test_a_listing_reads_as_the_interpreter_reads_it():
 def test_the_console_shows_the_editable_entries_outside_the_prescription():
     entries = console.parse_listing(LISTING)
 
-    assert console.shown(entries) == ["TE", "bandwidth", "nx", "fatsat", "readout"]
+    assert console.shown(entries) == [
+        "TE", "bandwidth", "nx", "fov", "phase_fov", "fatsat", "readout"
+    ]
 
 
 def test_a_value_block_carries_the_values_then_the_prescription_as_the_interpreter_sends_them():
@@ -361,3 +365,18 @@ def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_as_its_i
     written = sorted(os.listdir(tmp_path / "dcm"))
     assert written == ["Localizer.2026.09.27.0001.dcm", "Localizer.2026.09.27.0002.dcm"]
     assert (tmp_path / "dcm" / written[0]).read_bytes() == files[0]
+
+
+def test_marge_plans_the_protocols_field_of_view_entries_as_its_fov_in_cm():
+    gateway = _Scripted(_scan_answers())
+    sequence = console._plugin_class(_Base, gateway, "gre2d", console.parse_listing(LISTING))()
+
+    assert sequence.mapVals["fov"] == [25.0, 20.0, 0.0]
+    assert "phase_fov" not in sequence.mapVals
+    sequence.mapVals["fov"] = [30.0, 15.0, 0.0]
+    sequence.sequenceRun()
+
+    block = gateway.calls[0][1]["block"].splitlines()
+    assert "fov: 300.0" in block
+    assert "phase_fov: 150.0" in block
+    assert not any(line.startswith("slice_thickness") for line in block)
