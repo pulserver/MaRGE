@@ -61,7 +61,7 @@ class _Missing:
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError(f"{self._name}: {self._reason}")
 
-    def __getattr__(self, attribute: str) -> "_Missing":
+    def __getattr__(self, attribute: str) -> _Missing:
         if attribute.startswith("__"):
             raise AttributeError(attribute)
         return _Missing(f"{self._name}.{attribute}", self._reason)

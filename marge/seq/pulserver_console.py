@@ -276,7 +276,7 @@ class AsyncGateway:
         self._next = 0
 
     @classmethod
-    async def open(cls, address: str) -> "AsyncGateway":
+    async def open(cls, address: str) -> AsyncGateway:
         """Connect to the console at ``address``."""
         if sys.platform == "emscripten":
             return cls(await _BrowserSocket.open(address))
@@ -312,7 +312,7 @@ class _BrowserSocket:
     """The browser's WebSocket, its messages held in an asyncio queue."""
 
     @classmethod
-    async def open(cls, url: str) -> "_BrowserSocket":
+    async def open(cls, url: str) -> _BrowserSocket:
         from js import WebSocket
         from pyodide.ffi import create_proxy
 

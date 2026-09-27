@@ -1,4 +1,7 @@
-"""MaRGE as the console of pulserver's virtual scanner: the interpreter's text blocks, the prescription and the gateway."""
+"""MaRGE as the console of pulserver's virtual scanner.
+
+The interpreter's text blocks, the prescription, the gateway and the runs.
+"""
 
 import asyncio
 import base64
@@ -359,7 +362,9 @@ def _dicom(pixels, description):
     return buffer.getvalue()
 
 
-def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_drawn_as_dicom_displays_them(tmp_path):
+def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_drawn_as_dicom_does(
+    tmp_path,
+):
     pixels = [np.arange(12).reshape(3, 4), np.ones((3, 4))]
     files = [_dicom(p, "Localizer") for p in pixels]
     gateway = _Scripted({"exam": {"reply": {"localizer": [base64.b64encode(f).decode() for f in files]}}})

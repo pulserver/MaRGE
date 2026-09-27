@@ -167,7 +167,8 @@ def main(argv: list[str] | None = None) -> None:
     (args.dist / "manifest.json").write_text(json.dumps(manifest, indent=1))
     shutil.copy2(HERE / "index.html", args.dist / "index.html")
     size = sum(path.stat().st_size for path in args.dist.rglob("*") if path.is_file())
-    print(f"{args.dist}: {len(manifest['packages'])} packages, {len(manifest['wheels'])} wheels, {size / 1e6:.0f} MB")
+    counts = f"{len(manifest['packages'])} packages, {len(manifest['wheels'])} wheels"
+    print(f"{args.dist}: {counts}, {size / 1e6:.0f} MB")
 
 
 if __name__ == "__main__":

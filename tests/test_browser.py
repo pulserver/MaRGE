@@ -69,7 +69,8 @@ def test_the_session_opens_configured_for_the_virtual_scanner(page):
     state = _python(
         page,
         PRELUDE
-        + "json.dumps([session.launch_gui_action.isEnabled(), session.tab_session.project_combo_box.currentText()])",
+        + "json.dumps([session.launch_gui_action.isEnabled(),"
+        + " session.tab_session.project_combo_box.currentText()])",
     )
 
     assert state == [True, PROJECT]

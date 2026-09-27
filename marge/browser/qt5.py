@@ -149,7 +149,7 @@ def _thread_classes(QtCore: types.ModuleType) -> None:  # noqa: N803 -- the modu
         def __init__(self, mutex: Any) -> None:
             self.mutex = mutex
 
-        def __enter__(self) -> "QMutexLocker":
+        def __enter__(self) -> QMutexLocker:
             return self
 
         def __exit__(self, *exc: Any) -> bool:
@@ -175,7 +175,7 @@ def _thread_classes(QtCore: types.ModuleType) -> None:  # noqa: N803 -- the modu
         _global = None
 
         @classmethod
-        def globalInstance(cls) -> "QThreadPool":  # noqa: N802 -- Qt's API
+        def globalInstance(cls) -> QThreadPool:  # noqa: N802 -- Qt's API
             if cls._global is None:
                 cls._global = cls()
             return cls._global
