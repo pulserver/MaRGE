@@ -16,12 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: pulserver/pulserver
           path: pulserver
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Build the page
@@ -38,6 +38,7 @@ jobs:
             --plugins pulserver/tests/recon_plugins --slots 1 > proxy.log 2>&1 &
           pulserver console --plugins plugins --limits pulserver/docker/limits/limits.txt \
             --store designs --recon 127.0.0.1:9020 --port 8765 --spacing 2 > console.log 2>&1 &
+          timeout 120 bash -c 'until (echo > /dev/tcp/127.0.0.1/8765) 2> /dev/null; do sleep 1; done'
       - name: Run MaRGE in Chromium against the console
         env:
           MARGE_WEB: http://127.0.0.1:8000
