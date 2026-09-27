@@ -26,7 +26,10 @@ pytestmark = pytest.mark.skipif(
 def page():
     sync_api = pytest.importorskip("playwright.sync_api")
     with sync_api.sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
+        browser = playwright.chromium.launch(
+            executable_path=os.environ.get("CHROMIUM") or None,
+            args=["--autoplay-policy=no-user-gesture-required"],
+        )
         tab = browser.new_page(viewport={"width": 1400, "height": 900})
         tab.goto(f"{WEB}/index.html?console={CONSOLE}")
         tab.wait_for_function(
@@ -94,7 +97,7 @@ json.dumps(None)
     assert names == ["Localizer", "gre2d"]
 
 
-def test_a_scan_of_marges_protocol_returns_its_reconstruction(page):
+def test_a_scan_of_marges_protocol_plays_its_sound_and_returns_its_reconstruction(page):
     _python(
         page,
         PRELUDE
@@ -107,11 +110,17 @@ json.dumps(None)
     )
 
     history = _until(page, PRELUDE + "json.dumps(len(history) == 2 and history)")
-    files, clock = _python(
+    files, clock, played = _python(
         page,
-        PRELUDE + 'json.dumps([len(defaultsequences["gre2d"].files), defaultsequences["gre2d"].clock])',
+        PRELUDE
+        + """
+from marge.seq import pulserver_console as console
+sequence = defaultsequences["gre2d"]
+json.dumps([len(sequence.files), sequence.clock, console.SPEAKER.played])
+""",
     )
 
     assert history[1].split(" | ")[1].startswith("gre2d.")
     assert files >= 1
     assert clock[0] == pytest.approx(clock[1]) and clock[1] > 0.0
+    assert played == pytest.approx(clock[1], rel=0.01)

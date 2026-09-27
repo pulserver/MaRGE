@@ -360,6 +360,10 @@ PRELOADED: tuple[Any, dict[str, dict[str, dict[str, Any]]]] | None = None
 #: sequence through it again, which then shows the scan's images.
 TOOLBAR: Any = None
 
+#: Plays a scan's sound as it streams, given ``(n, 2)`` samples in [-1, 1] and
+#: their rate in Hz; scans are not asked for their sound without it.
+SPEAKER: Callable[[np.ndarray, float], None] | None = None
+
 
 def register_console(toolbar: Any) -> None:
     """Record MaRGE's sequence toolbar, through which background scans show their images."""
@@ -542,6 +546,9 @@ def _plugin_class(
                 if "clock" in message:
                     self.clock = (message["clock"], message["duration"])
                     _show_clock(plugin, *self.clock)
+                    if "sound" in message and SPEAKER is not None:
+                        pcm = np.frombuffer(base64.b64decode(message["sound"]), dtype="<i2")
+                        SPEAKER(pcm.reshape(-1, 2) / 32767.0, float(message["rate"]))
                 elif "dicom" in message:
                     files.append(base64.b64decode(message["dicom"]))
 
@@ -552,6 +559,7 @@ def _plugin_class(
                     design=generated["design"],
                     rotation=rotation.ravel().tolist(),
                     centre_mm=[float(c) for c in self.mapVals["dfov"]],
+                    sound=SPEAKER is not None,
                 )
             )
             self.files = files

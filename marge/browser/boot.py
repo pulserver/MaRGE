@@ -19,11 +19,12 @@ async def start(address: str) -> Any:
     """Connect to ``pulserver console`` at ``address`` and open MaRGE's session window.
 
     The console's plugin listings are fetched before MaRGE imports its
-    sequences, since no Qt handler may wait on the network in a tab. A tab
+    sequences, since no Qt handler may wait on the network in a tab, and
+    scans play their sound through the tab's speaker. A tab
     starts with no configuration, so the session is configured with
     :data:`PROJECT`, :data:`STUDY`, :data:`RED_PITAYA` and :data:`COIL`.
     """
-    from . import qt5, runtime
+    from . import audio, qt5, runtime
 
     runtime.install()
     qt5.install()
@@ -32,6 +33,7 @@ async def start(address: str) -> Any:
 
     gateway = await console.AsyncGateway.open(address)
     console.install((gateway, await console.listings_async(gateway)))
+    console.SPEAKER = audio.Speaker()
 
     os.makedirs(HOME, exist_ok=True)
     os.chdir(HOME)

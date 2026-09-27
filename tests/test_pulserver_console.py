@@ -391,3 +391,26 @@ def test_marge_plans_the_protocols_field_of_view_entries_as_its_fov_in_cm():
     assert "fov: 300.0" in block
     assert "phase_fov: 150.0" in block
     assert not any(line.startswith("slice_thickness") for line in block)
+
+
+def test_a_scan_asks_for_its_sound_only_with_a_speaker_and_plays_what_streams(monkeypatch):
+    left_right = np.array([[0.5, -0.25], [1.0, 0.0]])
+    pcm = np.round(32767 * left_right).astype("<i2").tobytes()
+    answers = _scan_answers()
+    answers["scan"]["messages"] = [
+        {"clock": 0.1, "duration": 2.0, "sound": base64.b64encode(pcm).decode(), "rate": 44100.0}
+    ]
+    entries = console.parse_listing(LISTING)
+    silent = _Scripted(_scan_answers())
+    console._plugin_class(_Base, silent, "gre2d", entries)().sequenceRun()
+    played = []
+    monkeypatch.setattr(console, "SPEAKER", lambda samples, rate: played.append((samples, rate)))
+    loud = _Scripted(answers)
+
+    console._plugin_class(_Base, loud, "gre2d", entries)().sequenceRun()
+
+    assert silent.calls[1][1]["sound"] is False
+    assert loud.calls[1][1]["sound"] is True
+    (samples, rate), = played
+    np.testing.assert_allclose(samples, left_right, atol=1 / 32767)
+    assert rate == 44100.0
