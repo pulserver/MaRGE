@@ -23,6 +23,7 @@ import json
 import math
 import os
 import sys
+import traceback
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -395,7 +396,10 @@ def _run(sequence: Any, gateway: Any, work: Callable[[], Any]) -> bool:
             sequence._finished = False
         sequence.deleteOutput()
         if TOOLBAR is not None:
-            TOOLBAR.startAcquisition(seq_name=sequence.mapVals["seqName"])
+            try:
+                TOOLBAR.startAcquisition(seq_name=sequence.mapVals["seqName"])
+            except Exception:  # noqa: BLE001 -- MaRGE's console shows it
+                print(traceback.format_exc())
 
     asyncio.ensure_future(background())
     return False
@@ -416,8 +420,33 @@ def _image_output(images: Sequence[tuple[np.ndarray, Any]]) -> list[dict]:
     ]
 
 
+def _console_class(base: type) -> type:
+    class ConsoleSequence(base):
+        """A MaRGE sequence whose images are the DICOM files the console returns, in ``files``."""
+
+        def sequenceAnalysis(self, mode=None) -> list:  # noqa: N802 -- MaRGE's API
+            self.mode = mode
+            self.output = _image_output(dicom_images(self.files))
+            self.saveRawData()
+            return self.output
+
+        def saveRawData(self) -> None:  # noqa: N802 -- MaRGE's API
+            """Save the run as MaRGE does, with the console's DICOM files in place of MaRGE's own."""
+            output, self.output = self.output, []
+            try:
+                super().saveRawData()
+            finally:
+                self.output = output
+            folder = os.path.join(os.path.dirname(self.directory_mat), "dcm")
+            for index, data in enumerate(self.files, 1):
+                with open(os.path.join(folder, f"{self.file_name}.{index:04d}.dcm"), "wb") as file:
+                    file.write(data)
+
+    return ConsoleSequence
+
+
 def _localizer_class(base: type, gateway: Any) -> type:
-    class Localizer(base):
+    class Localizer(_console_class(base)):
         """The three planes of the subject's phantom, drawn from its ground truth."""
 
         def __init__(self) -> None:
@@ -425,19 +454,15 @@ def _localizer_class(base: type, gateway: Any) -> type:
             self.addParameter(key="seqName", string="Localizer", val="Localizer")
             self.addParameter(key="toMaRGE", val=True)
             self.addParameter(key="pulserverConsole", val=True)
-            self.images: list = []
+            self.files: list[bytes] = []
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
             async def work() -> bool:
                 subject = subject_phantom(getattr(self, "session", {}) or {})
-                self.images = dicom_images(await _answer(gateway.localizer(subject)))
+                self.files = await _answer(gateway.localizer(subject))
                 return True
 
             return _run(self, gateway, work)
-
-        def sequenceAnalysis(self, mode=None) -> list:  # noqa: N802 -- MaRGE's API
-            self.output = _image_output(self.images)
-            return self.output
 
     return Localizer
 
@@ -447,7 +472,7 @@ def _plugin_class(
 ) -> type:
     names = shown(entries)
 
-    class PluginSequence(base):
+    class PluginSequence(_console_class(base)):
         def __init__(self) -> None:
             super().__init__()
             self.addParameter(key="seqName", string=plugin, val=plugin)
@@ -466,7 +491,7 @@ def _plugin_class(
             self.addParameter(
                 key="rotationAxis", string="Rotation axis", val=[0.0, 0.0, 1.0], units=1, field="IM"
             )
-            self.images: list = []
+            self.files: list[bytes] = []
             self.clock = (0.0, 0.0)
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
@@ -501,12 +526,8 @@ def _plugin_class(
                     centre_mm=[float(c) for c in self.mapVals["dfov"]],
                 )
             )
-            self.images = dicom_images(files)
+            self.files = files
             return done["done"] == 0
-
-        def sequenceAnalysis(self, mode=None) -> list:  # noqa: N802 -- MaRGE's API
-            self.output = _image_output(self.images)
-            return self.output
 
     PluginSequence.__name__ = PluginSequence.__qualname__ = f"Pulserver_{plugin}"
     return PluginSequence

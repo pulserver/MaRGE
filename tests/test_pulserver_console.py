@@ -2,7 +2,9 @@
 
 import asyncio
 import base64
+import io
 import json
+import os
 
 import numpy as np
 import pytest
@@ -200,13 +202,23 @@ class _Base:
     """The part of MaRGE's sequence base the console's sequences use."""
 
     def __init__(self):
-        self.mapVals, self.deleted = {}, 0
+        self.mapVals, self.deleted, self.saved_with = {}, 0, None
 
     def addParameter(self, key="", string="", val=0, units=True, field="", tip=None):  # noqa: N802
         self.mapVals[key] = val
 
     def deleteOutput(self):  # noqa: N802
         self.deleted += 1
+
+    def saveRawData(self):  # noqa: N802
+        """Name the run and make its folders, as MaRGE does, noting the output its DICOM writer sees."""
+        directory = self.session["directory"]
+        for folder in ("mat", "dcm"):
+            os.makedirs(os.path.join(directory, folder), exist_ok=True)
+        self.directory_mat = os.path.join(directory, "mat")
+        self.file_name = f"{self.mapVals['seqName']}.2026.09.27"
+        self.mapVals["fileName"] = f"{self.file_name}.mat"
+        self.saved_with = list(self.output)
 
 
 class _Toolbar:
@@ -309,3 +321,43 @@ def test_a_failed_background_scan_shows_nothing(monkeypatch, capsys):
     assert toolbar.started == ["gre2d"]
     assert sequence.sequenceRun() is False
     assert "ERROR too strong" in capsys.readouterr().out
+
+
+def _dicom(pixels, description):
+    import pydicom
+
+    dataset = pydicom.Dataset()
+    dataset.file_meta = pydicom.dataset.FileMetaDataset()
+    dataset.file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+    dataset.file_meta.MediaStorageSOPClassUID = pydicom.uid.MRImageStorage
+    dataset.file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
+    dataset.SOPClassUID = pydicom.uid.MRImageStorage
+    dataset.SOPInstanceUID = dataset.file_meta.MediaStorageSOPInstanceUID
+    dataset.Rows, dataset.Columns = pixels.shape
+    dataset.SamplesPerPixel, dataset.PhotometricInterpretation = 1, "MONOCHROME2"
+    dataset.BitsAllocated, dataset.BitsStored, dataset.HighBit = 16, 16, 15
+    dataset.PixelRepresentation, dataset.RescaleSlope, dataset.RescaleIntercept = 0, 2, 0
+    dataset.PixelData = pixels.astype("<u2").tobytes()
+    dataset.SeriesDescription = description
+    buffer = io.BytesIO()
+    dataset.save_as(buffer, enforce_file_format=True)
+    return buffer.getvalue()
+
+
+def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_as_its_images(tmp_path):
+    pixels = [np.arange(12).reshape(3, 4), np.ones((3, 4))]
+    files = [_dicom(p, "Localizer") for p in pixels]
+    gateway = _Scripted({"exam": {"reply": {"localizer": [base64.b64encode(f).decode() for f in files]}}})
+    gateway.localizer = lambda subject: console.Gateway.localizer(gateway, subject)
+    sequence = console._localizer_class(_Base, gateway)()
+    sequence.session = {"subject_name": "vials", "directory": str(tmp_path)}
+
+    assert sequence.sequenceRun() is True
+    output = sequence.sequenceAnalysis()
+
+    assert [item["widget"] for item in output] == ["image", "image"]
+    np.testing.assert_array_equal(output[1]["data"], 2.0 * pixels[1][np.newaxis])
+    assert sequence.saved_with == []
+    written = sorted(os.listdir(tmp_path / "dcm"))
+    assert written == ["Localizer.2026.09.27.0001.dcm", "Localizer.2026.09.27.0002.dcm"]
+    assert (tmp_path / "dcm" / written[0]).read_bytes() == files[0]
