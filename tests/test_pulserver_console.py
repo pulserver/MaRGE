@@ -1,5 +1,6 @@
 """MaRGE as the console of pulserver's virtual scanner: the interpreter's text blocks, the prescription and the gateway."""
 
+import asyncio
 import base64
 import json
 
@@ -157,3 +158,154 @@ def test_without_a_gateway_address_marge_is_not_a_console(monkeypatch):
     monkeypatch.setattr(console, "GATEWAY", "")
 
     assert not console.console_mode()
+
+
+class _AsyncSocket:
+    """An asynchronous console connection that answers from a script of replies."""
+
+    def __init__(self, replies):
+        self.sent, self._replies = [], list(replies)
+
+    async def send(self, text):
+        self.sent.append(json.loads(text))
+
+    async def recv(self):
+        return json.dumps(self._replies.pop(0))
+
+
+class _Scripted:
+    """A synchronous gateway that answers each call from a table."""
+
+    asynchronous = False
+
+    def __init__(self, answers):
+        self.calls, self._answers = [], answers
+
+    def request(self, call, on_message=None, **fields):
+        self.calls.append((call, fields))
+        answer = self._answers[call]
+        for message in answer.get("messages", []):
+            on_message(message)
+        return answer["reply"]
+
+
+class _AsyncScripted(_Scripted):
+    asynchronous = True
+
+    async def request(self, call, on_message=None, **fields):
+        return _Scripted.request(self, call, on_message, **fields)
+
+
+class _Base:
+    """The part of MaRGE's sequence base the console's sequences use."""
+
+    def __init__(self):
+        self.mapVals, self.deleted = {}, 0
+
+    def addParameter(self, key="", string="", val=0, units=True, field="", tip=None):  # noqa: N802
+        self.mapVals[key] = val
+
+    def deleteOutput(self):  # noqa: N802
+        self.deleted += 1
+
+
+class _Toolbar:
+    def __init__(self):
+        self.started = []
+
+    def startAcquisition(self, seq_name=None):  # noqa: N802
+        self.started.append(seq_name)
+
+
+def test_an_asynchronous_scan_request_passes_its_clock_on_and_returns_when_done():
+    socket = _AsyncSocket(
+        [{"id": 1, "clock": 0.5, "duration": 1.0}, {"id": 1, "done": 0}]
+    )
+    gateway = console.AsyncGateway(socket)
+    seen = []
+
+    done = asyncio.run(gateway.request("scan", on_message=seen.append, design="d1"))
+
+    assert done == {"id": 1, "done": 0}
+    assert seen == [{"id": 1, "clock": 0.5, "duration": 1.0}]
+
+
+def test_the_listings_are_each_plugins_entries():
+    gateway = _Scripted(
+        {
+            "plugins": {"reply": {"plugins": ["gre2d", "broken"]}},
+            "list": {"reply": {"status": 0, "reply": LISTING}},
+        }
+    )
+
+    found = console.listings(gateway)
+
+    assert list(found) == ["gre2d", "broken"]
+    assert found["gre2d"]["TE"]["value"] == 8000
+
+
+def _scan_answers(status=0):
+    return {
+        "generate": {"reply": {"status": 0, "reply": "GENERATED d1\n", "design": "d1"}},
+        "scan": {
+            "messages": [{"clock": 1.0, "duration": 2.0}],
+            "reply": {"done": status},
+        },
+    }
+
+
+def test_a_plugin_sequence_generates_and_scans_through_a_blocking_gateway():
+    gateway = _Scripted(_scan_answers())
+    entries = console.parse_listing(LISTING)
+    sequence = console._plugin_class(_Base, gateway, "gre2d", entries)()
+
+    assert sequence.sequenceRun() is True
+
+    (generate, fields), (scan, scanned) = gateway.calls
+    assert (generate, scan) == ("generate", "scan")
+    assert "TE: 8000" in fields["block"]
+    assert scanned["design"] == "d1"
+    assert sequence.clock == (1.0, 2.0)
+
+
+def test_through_an_asynchronous_gateway_a_scan_runs_in_the_background_then_shows_through_the_toolbar(
+    monkeypatch,
+):
+    toolbar = _Toolbar()
+    monkeypatch.setattr(console, "TOOLBAR", toolbar)
+    gateway = _AsyncScripted(_scan_answers())
+    entries = console.parse_listing(LISTING)
+    sequence = console._plugin_class(_Base, gateway, "gre2d", entries)()
+
+    async def run():
+        started = sequence.sequenceRun()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        return started
+
+    assert asyncio.run(run()) is False
+    assert toolbar.started == ["gre2d"]
+    assert sequence.deleted == 1
+    assert sequence.sequenceRun() is True
+    assert [call for call, _ in gateway.calls] == ["generate", "scan"]
+
+
+def test_a_failed_background_scan_shows_nothing(monkeypatch, capsys):
+    toolbar = _Toolbar()
+    monkeypatch.setattr(console, "TOOLBAR", toolbar)
+    answers = _scan_answers()
+    answers["generate"]["reply"] = {"status": 1, "reply": "ERROR too strong\n"}
+    sequence = console._plugin_class(
+        _Base, _AsyncScripted(answers), "gre2d", console.parse_listing(LISTING)
+    )()
+
+    async def run():
+        sequence.sequenceRun()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+    assert toolbar.started == ["gre2d"]
+    assert sequence.sequenceRun() is False
+    assert "ERROR too strong" in capsys.readouterr().out

@@ -15,11 +15,14 @@ exactly what a scanner's interpreter asks.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import inspect
 import io
 import json
 import math
 import os
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -242,17 +245,160 @@ class Gateway:
         return [base64.b64decode(f) for f in reply["localizer"]]
 
 
-def sequence_classes(gateway: Gateway) -> dict[str, type]:
-    """Return a MaRGE sequence class for each plugin the console lists, and the localizer's."""
+class AsyncGateway:
+    """A connection to ``pulserver console`` on an asyncio event loop, as MaRGE has in the browser.
+
+    Under Pyodide a Qt handler cannot wait on the network, so every request is
+    a coroutine; the connection is the browser's WebSocket there and the
+    ``websockets`` asyncio client elsewhere.
+    """
+
+    asynchronous = True
+
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+        self._next = 0
+
+    @classmethod
+    async def open(cls, address: str) -> "AsyncGateway":
+        """Connect to the console at ``address``."""
+        if sys.platform == "emscripten":
+            return cls(await _BrowserSocket.open(address))
+        from websockets.asyncio.client import connect
+
+        return cls(await connect(address, max_size=None))
+
+    async def request(
+        self, call: str, on_message: Callable[[dict], None] | None = None, **fields: Any
+    ) -> dict:
+        """Send one request and return its last reply, as :meth:`Gateway.request` does."""
+        self._next += 1
+        ident = self._next
+        await self._connection.send(json.dumps({"id": ident, "call": call, **fields}))
+        while True:
+            reply = json.loads(await self._connection.recv())
+            if reply.get("id") != ident:
+                continue
+            if "error" in reply:
+                raise RuntimeError(reply["error"])
+            if call != "scan" or "done" in reply:
+                return reply
+            if on_message is not None:
+                on_message(reply)
+
+    async def localizer(self, subject: str) -> list[bytes]:
+        """Start an exam on ``subject`` and return its three-plane localizer, as DICOM files."""
+        reply = await self.request("exam", subject=subject)
+        return [base64.b64decode(f) for f in reply["localizer"]]
+
+
+class _BrowserSocket:
+    """The browser's WebSocket, its messages held in an asyncio queue."""
+
+    @classmethod
+    async def open(cls, url: str) -> "_BrowserSocket":
+        from js import WebSocket
+        from pyodide.ffi import create_proxy
+
+        self = cls()
+        self._queue = asyncio.Queue()
+        opened = asyncio.get_event_loop().create_future()
+
+        def on_open(event: Any) -> None:
+            if not opened.done():
+                opened.set_result(None)
+
+        def on_error(event: Any) -> None:
+            if not opened.done():
+                opened.set_exception(OSError(f"cannot reach {url}"))
+
+        self._socket = WebSocket.new(url)
+        self._proxies = [create_proxy(on_open), create_proxy(on_error)]
+        self._proxies.append(create_proxy(lambda event: self._queue.put_nowait(event.data)))
+        self._socket.onopen, self._socket.onerror, self._socket.onmessage = self._proxies
+        await opened
+        return self
+
+    async def send(self, text: str) -> None:
+        self._socket.send(text)
+
+    async def recv(self) -> str:
+        return await self._queue.get()
+
+
+async def _answer(reply: Any) -> Any:
+    return await reply if inspect.isawaitable(reply) else reply
+
+
+def listings(gateway: Gateway) -> dict[str, dict[str, dict[str, Any]]]:
+    """Return the entries of each plugin the console lists, by plugin."""
+    return asyncio.run(listings_async(gateway))
+
+
+async def listings_async(gateway: Any) -> dict[str, dict[str, dict[str, Any]]]:
+    """Return the entries of each plugin the console lists, by plugin, on either kind of gateway."""
+    found = {}
+    for plugin in (await _answer(gateway.request("plugins")))["plugins"]:
+        reply = await _answer(gateway.request("list", plugin=plugin))
+        if reply["status"] == 0:
+            found[plugin] = parse_listing(reply["reply"])
+    return found
+
+
+#: The gateway and the plugin listings, fetched before MaRGE imports its
+#: sequences where fetching may not block, as in the browser.
+PRELOADED: tuple[Any, dict[str, dict[str, dict[str, Any]]]] | None = None
+
+#: MaRGE's sequence toolbar: a scan that completes in the background runs its
+#: sequence through it again, which then shows the scan's images.
+TOOLBAR: Any = None
+
+
+def register_console(toolbar: Any) -> None:
+    """Record MaRGE's sequence toolbar, through which background scans show their images."""
+    global TOOLBAR
+    TOOLBAR = toolbar
+
+
+def sequence_classes(
+    gateway: Any, entries: Mapping[str, Mapping[str, Mapping[str, Any]]]
+) -> dict[str, type]:
+    """Return a MaRGE sequence class for each plugin's entries, and the localizer's."""
     from marge.seq.mriBlankSeq import MRIBLANKSEQ
 
     classes = {"Localizer": _localizer_class(MRIBLANKSEQ, gateway)}
-    for plugin in gateway.request("plugins")["plugins"]:
-        reply = gateway.request("list", plugin=plugin)
-        if reply["status"] == 0:
-            entries = parse_listing(reply["reply"])
-            classes[plugin] = _plugin_class(MRIBLANKSEQ, gateway, plugin, entries)
+    for plugin, plugin_entries in entries.items():
+        classes[plugin] = _plugin_class(MRIBLANKSEQ, gateway, plugin, plugin_entries)
     return classes
+
+
+def _run(sequence: Any, gateway: Any, work: Callable[[], Any]) -> bool:
+    """Run a sequence's work, in the background on an asynchronous gateway.
+
+    With a synchronous gateway the work runs to its end. With an asynchronous
+    one it starts as a task and the run reports nothing yet; once the task
+    completes, the sequence is run again through MaRGE's toolbar, and that run
+    reports the task's outcome at once, so that MaRGE shows its output.
+    """
+    finished = getattr(sequence, "_finished", None)
+    if finished is not None:
+        sequence._finished = None
+        return finished
+    if not getattr(gateway, "asynchronous", False):
+        return asyncio.run(work())
+
+    async def background() -> None:
+        try:
+            sequence._finished = await work()
+        except Exception as error:  # noqa: BLE001 -- MaRGE's console shows it
+            print(f"pulserver: {error}")
+            sequence._finished = False
+        sequence.deleteOutput()
+        if TOOLBAR is not None:
+            TOOLBAR.startAcquisition(seq_name=sequence.mapVals["seqName"])
+
+    asyncio.ensure_future(background())
+    return False
 
 
 def _image_output(images: Sequence[tuple[np.ndarray, Any]]) -> list[dict]:
@@ -270,7 +416,7 @@ def _image_output(images: Sequence[tuple[np.ndarray, Any]]) -> list[dict]:
     ]
 
 
-def _localizer_class(base: type, gateway: Gateway) -> type:
+def _localizer_class(base: type, gateway: Any) -> type:
     class Localizer(base):
         """The three planes of the subject's phantom, drawn from its ground truth."""
 
@@ -282,9 +428,12 @@ def _localizer_class(base: type, gateway: Gateway) -> type:
             self.images: list = []
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
-            session = getattr(self, "session", {}) or {}
-            self.images = dicom_images(gateway.localizer(subject_phantom(session)))
-            return True
+            async def work() -> bool:
+                subject = subject_phantom(getattr(self, "session", {}) or {})
+                self.images = dicom_images(await _answer(gateway.localizer(subject)))
+                return True
+
+            return _run(self, gateway, work)
 
         def sequenceAnalysis(self, mode=None) -> list:  # noqa: N802 -- MaRGE's API
             self.output = _image_output(self.images)
@@ -294,7 +443,7 @@ def _localizer_class(base: type, gateway: Gateway) -> type:
 
 
 def _plugin_class(
-    base: type, gateway: Gateway, plugin: str, entries: Mapping[str, Mapping[str, Any]]
+    base: type, gateway: Any, plugin: str, entries: Mapping[str, Mapping[str, Any]]
 ) -> type:
     names = shown(entries)
 
@@ -321,6 +470,9 @@ def _plugin_class(
             self.clock = (0.0, 0.0)
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
+            return _run(self, gateway, self._scan)
+
+        async def _scan(self) -> bool:
             rotation, offset = prescription(
                 str(self.mapVals["orientation"]),
                 float(self.mapVals["angle"]),
@@ -329,7 +481,7 @@ def _plugin_class(
             )
             values = {name: self.mapVals[name] for name in names}
             block = format_values(values, entries, rotation, offset)
-            generated = gateway.request("generate", plugin=plugin, block=block)
+            generated = await _answer(gateway.request("generate", plugin=plugin, block=block))
             if generated["status"] != 0:
                 raise RuntimeError(generated["reply"].strip())
             files = []
@@ -340,12 +492,14 @@ def _plugin_class(
                 elif "dicom" in message:
                     files.append(base64.b64decode(message["dicom"]))
 
-            done = gateway.request(
-                "scan",
-                on_message=received,
-                design=generated["design"],
-                rotation=rotation.ravel().tolist(),
-                centre_mm=[float(c) for c in self.mapVals["dfov"]],
+            done = await _answer(
+                gateway.request(
+                    "scan",
+                    on_message=received,
+                    design=generated["design"],
+                    rotation=rotation.ravel().tolist(),
+                    centre_mm=[float(c) for c in self.mapVals["dfov"]],
+                )
             )
             self.images = dicom_images(files)
             return done["done"] == 0
@@ -358,10 +512,25 @@ def _plugin_class(
     return PluginSequence
 
 
-if console_mode():
+def install(preloaded: tuple[Any, dict] | None = None) -> None:
+    """Add the console's sequences to this module, where MaRGE's sequence list finds them.
+
+    ``preloaded`` is a gateway and the listings fetched through it; without
+    it, the listings are fetched here, through a blocking gateway. In the
+    browser, where nothing may block, the page fetches them with an
+    :class:`AsyncGateway` and passes them in before MaRGE is imported.
+    """
+    global PRELOADED
+    if preloaded is not None:
+        PRELOADED = preloaded
+    if PRELOADED is None:
+        gateway = Gateway(GATEWAY)
+        PRELOADED = (gateway, listings(gateway))
+    globals().update({cls.__name__: cls for cls in sequence_classes(*PRELOADED).values()})
+
+
+if console_mode() and sys.platform != "emscripten":
     try:
-        globals().update(
-            {cls.__name__: cls for cls in sequence_classes(Gateway(GATEWAY)).values()}
-        )
+        install()
     except OSError as error:
         print(f"pulserver console at {GATEWAY} is not reachable: {error}")
