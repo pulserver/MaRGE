@@ -50,6 +50,12 @@ def instantiate_sequences():
         except Exception as e:
             print(f"Error importing module {module_name}: {e}")
 
+    # As the console of pulserver's virtual scanner, MaRGE shows pulserver's sequences only.
+    from marge.seq.pulserver_console import console_mode
+    if console_mode():
+        defaultsequences = {name: sequence for name, sequence in defaultsequences.items()
+                            if sequence.mapVals.get('pulserverConsole')}
+
     return defaultsequences
 
 defaultsequences = instantiate_sequences()
