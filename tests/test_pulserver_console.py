@@ -5,6 +5,7 @@ import base64
 import io
 import json
 import os
+import types
 
 import numpy as np
 import pytest
@@ -226,8 +227,17 @@ class _Base:
 
 
 class _Toolbar:
+    """MaRGE's sequence toolbar, and the status bar of its main window."""
+
     def __init__(self):
-        self.started = []
+        self.started, self.messages = [], []
+
+        class StatusBar:
+            def showMessage(bar, text):  # noqa: N802, N805
+                self.messages.append(text)
+
+        status = StatusBar()
+        self.main = types.SimpleNamespace(statusBar=lambda: status)
 
     def startAcquisition(self, seq_name=None):  # noqa: N802
         self.started.append(seq_name)
@@ -301,6 +311,7 @@ def test_through_an_asynchronous_gateway_a_scan_runs_in_the_background_then_show
 
     assert asyncio.run(run()) is False
     assert toolbar.started == ["gre2d"]
+    assert toolbar.messages == ["gre2d: 1.0 s of 2.0 s"]
     assert sequence.deleted == 1
     assert sequence.sequenceRun() is True
     assert [call for call, _ in gateway.calls] == ["generate", "scan"]

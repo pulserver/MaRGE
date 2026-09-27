@@ -367,6 +367,12 @@ def register_console(toolbar: Any) -> None:
     TOOLBAR = toolbar
 
 
+def _show_clock(name: str, clock: float, duration: float) -> None:
+    """Show a scan's clock, in s, in the status bar of MaRGE's main window."""
+    if TOOLBAR is not None:
+        TOOLBAR.main.statusBar().showMessage(f"{name}: {clock:.1f} s of {duration:.1f} s")
+
+
 def sequence_classes(
     gateway: Any, entries: Mapping[str, Mapping[str, Mapping[str, Any]]]
 ) -> dict[str, type]:
@@ -535,6 +541,7 @@ def _plugin_class(
             def received(message: dict) -> None:
                 if "clock" in message:
                     self.clock = (message["clock"], message["duration"])
+                    _show_clock(plugin, *self.clock)
                 elif "dicom" in message:
                     files.append(base64.b64decode(message["dicom"]))
 
