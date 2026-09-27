@@ -9,6 +9,7 @@ import threading
 
 from PyQt5.QtCore import QEvent
 
+from marge.seq.pulserver_console import console_mode
 from marge.seq.sequences import defaultsequences
 from marge.ui.window_main import MainWindow
 import marge.autotuning.autotuning as autotuning
@@ -34,6 +35,11 @@ class MainController(MainWindow):
         else:
             self.arduino_interlock = autotuning.Arduino(hw.ard_br_interlock)
             self.arduino_interlock.connect(serial_number=hw.ard_sn_interlock)
+
+        # As the console of pulserver's virtual scanner, an exam opens on the
+        # localizer of the subject's phantom, which needs no scan.
+        if console_mode() and "Localizer" in defaultsequences:
+            self.toolbar_sequences.startAcquisition(seq_name="Localizer")
 
     def set_demo(self, demo):
         self.demo = demo
