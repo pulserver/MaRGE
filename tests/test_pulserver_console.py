@@ -378,19 +378,52 @@ def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_drawn_as
     assert (tmp_path / "dcm" / written[0]).read_bytes() == files[0]
 
 
-def test_marge_plans_the_protocols_field_of_view_entries_as_its_fov_in_cm():
+def test_marges_axes_are_those_it_plans_along_on_the_localizers_planes():
+    np.testing.assert_allclose(console.MARGE_AXES @ [0, 0, 1], [1, 0, 0])  # across all but sagittal
+    np.testing.assert_allclose(console.MARGE_AXES @ [0, 1, 0], [0, 1, 0])  # down the transversal
+    np.testing.assert_allclose(console.MARGE_AXES @ [1, 0, 0], [0, 0, -1])  # down the others
+    assert np.linalg.det(console.MARGE_AXES) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("orientation", "fov", "sizes"),
+    [
+        ("axial", [5.0, 15.0, 30.0], (300.0, 150.0)),
+        ("coronal", [15.0, 5.0, 30.0], (300.0, 150.0)),
+        ("sagittal", [15.0, 30.0, 5.0], (300.0, 150.0)),
+    ],
+)
+def test_marge_plans_the_protocols_field_of_view_entries_as_its_fov_along_its_axes(
+    orientation, fov, sizes
+):
     gateway = _Scripted(_scan_answers())
     sequence = console._plugin_class(_Base, gateway, "gre2d", console.parse_listing(LISTING))()
 
-    assert sequence.mapVals["fov"] == [25.0, 20.0, 0.0]
+    assert sequence.mapVals["fov"] == [0.0, 20.0, 25.0]
     assert "phase_fov" not in sequence.mapVals
-    sequence.mapVals["fov"] = [30.0, 15.0, 0.0]
+    sequence.mapVals["orientation"] = orientation
+    sequence.mapVals["fov"] = fov
     sequence.sequenceRun()
 
     block = gateway.calls[0][1]["block"].splitlines()
-    assert "fov: 300.0" in block
-    assert "phase_fov: 150.0" in block
+    assert f"fov: {sizes[0]!r}" in block
+    assert f"phase_fov: {sizes[1]!r}" in block
     assert not any(line.startswith("slice_thickness") for line in block)
+
+
+def test_a_planned_centre_along_marges_axes_is_sent_along_the_physical_ones():
+    gateway = _Scripted(_scan_answers())
+    sequence = console._plugin_class(_Base, gateway, "gre2d", console.parse_listing(LISTING))()
+    sequence.mapVals["orientation"] = "coronal"
+    sequence.mapVals["dfov"] = [10.0, 20.0, 30.0]
+
+    sequence.sequenceRun()
+
+    (_, generated), (_, scanned) = gateway.calls
+    np.testing.assert_allclose(scanned["centre_mm"], [30.0, 20.0, -10.0])
+    prescribed = dict(line.split(": ") for line in generated["block"].splitlines()[1:-1])
+    offset = [float(prescribed[name]) for name in console.FOV_OFFSET]
+    np.testing.assert_allclose(offset, console.ORIENTATIONS["coronal"].T @ [30.0, 20.0, -10.0])
 
 
 def test_a_scan_asks_for_its_sound_only_with_a_speaker_and_plays_what_streams(monkeypatch):

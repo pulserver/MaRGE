@@ -48,6 +48,15 @@ ORIENTATIONS = {
 #: The protocol's field-of-view entries along the logical readout, phase and
 #: slice axes, which MaRGE plans as its ``fov``, in cm.
 FOV_SIZE = ("fov", "phase_fov", "slice_thickness")
+
+#: MaRGE's names of the localizer's axial, coronal and sagittal planes, on
+#: which it plans the field of view.
+PLANE_TITLES = ("Transversal", "Coronal", "Sagittal")
+#: The physical directions of MaRGE's planning axes 0, 1 and 2, as columns.
+#: MaRGE takes the across and down directions of its Transversal, Coronal and
+#: Sagittal images as its axes 2 and 1, 2 and 0, and 1 and 0; on the
+#: localizer's planes these are +x and +y, +x and -z, and +y and -z.
+MARGE_AXES = np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]])
 #: Centimetres per unit of a field-of-view entry.
 CM_PER_UNIT = {"mm": 0.1, "cm": 1.0, "m": 100.0}
 
@@ -421,11 +430,13 @@ def _run(sequence: Any, gateway: Any, work: Callable[[], Any]) -> bool:
     return False
 
 
-def _image_output(images: Sequence[tuple[np.ndarray, Any]]) -> list[dict]:
+def _image_output(
+    images: Sequence[tuple[np.ndarray, Any]], titles: Sequence[str] | None = None
+) -> list[dict]:
     """Return MaRGE's output for DICOM images, drawn with their columns across and rows down.
 
     MaRGE's image plot draws an array's first axis across, so each image is
-    handed over transposed.
+    handed over transposed. Without ``titles``, each is titled by its series.
     """
     return [
         {
@@ -433,7 +444,7 @@ def _image_output(images: Sequence[tuple[np.ndarray, Any]]) -> list[dict]:
             "data": pixels.T[np.newaxis],
             "xLabel": "",
             "yLabel": "",
-            "title": str(getattr(dataset, "SeriesDescription", "")),
+            "title": titles[column] if titles else str(getattr(dataset, "SeriesDescription", "")),
             "row": 0,
             "col": column,
         }
@@ -445,9 +456,11 @@ def _console_class(base: type) -> type:
     class ConsoleSequence(base):
         """A MaRGE sequence whose images are the DICOM files the console returns, in ``files``."""
 
+        titles: Sequence[str] | None = None
+
         def sequenceAnalysis(self, mode=None) -> list:  # noqa: N802 -- MaRGE's API
             self.mode = mode
-            self.output = _image_output(dicom_images(self.files))
+            self.output = _image_output(dicom_images(self.files), self.titles)
             self.saveRawData()
             return self.output
 
@@ -468,14 +481,17 @@ def _console_class(base: type) -> type:
 
 def _localizer_class(base: type, gateway: Any) -> type:
     class Localizer(_console_class(base)):
-        """The three planes of the subject's phantom, drawn from its ground truth."""
+        """The three planes of the subject's phantom, drawn from its ground truth, 25.6 cm square."""
+
+        titles = PLANE_TITLES
 
         def __init__(self) -> None:
             super().__init__()
             self.addParameter(key="seqName", string="Localizer", val="Localizer")
             self.addParameter(key="toMaRGE", val=True)
             self.addParameter(key="pulserverConsole", val=True)
-            self.addParameter(key="fov", val=[25.6, 25.6, 0.5])
+            self.addParameter(key="fov", val=[25.6, 25.6, 25.6], units=1e-2)
+            self.addParameter(key="dfov", val=[0.0, 0.0, 0.0], units=1e-3)
             self.files: list[bytes] = []
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
@@ -487,6 +503,11 @@ def _localizer_class(base: type, gateway: Any) -> type:
             return _run(self, gateway, work)
 
     return Localizer
+
+
+def _marge_axes(rotation: np.ndarray) -> list[int]:
+    """Return the MaRGE axis closest to each of the logical readout, phase and slice axes."""
+    return [int(np.argmax(np.abs(MARGE_AXES.T @ column))) for column in np.asarray(rotation).T]
 
 
 def _plugin_class(
@@ -509,20 +530,20 @@ def _plugin_class(
                 unit = entry.get("unit", "")
                 label = f"{name} ({unit})" if unit else name
                 self.addParameter(key=name, string=label, val=entry["value"], units=1, field="SEQ")
-            fov = [
-                entries[name]["value"] * cm_per_unit(name) if name in sizes else 0.0
-                for name in FOV_SIZE
-            ]
-            self.addParameter(
-                key="fov", string="FOV (readout, phase, slice) (cm)", val=fov, units=1, field="IM"
-            )
+            fov = [0.0, 0.0, 0.0]
+            for name, axis in zip(FOV_SIZE, _marge_axes(ORIENTATIONS["axial"]), strict=True):
+                if name in sizes:
+                    fov[axis] = entries[name]["value"] * cm_per_unit(name)
+            self.addParameter(key="fov", string="FOV (cm)", val=fov, units=1e-2, field="IM")
             self.addParameter(
                 key="orientation", string="Orientation", val="axial", units=1, field="IM"
             )
-            self.addParameter(key="dfov", string="FOV centre (mm)", val=[0.0, 0.0, 0.0], units=1, field="IM")
+            self.addParameter(
+                key="dfov", string="FOV centre (mm)", val=[0.0, 0.0, 0.0], units=1e-3, field="IM"
+            )
             self.addParameter(key="angle", string="Angle (deg)", val=0.0, units=1, field="IM")
             self.addParameter(
-                key="rotationAxis", string="Rotation axis", val=[0.0, 0.0, 1.0], units=1, field="IM"
+                key="rotationAxis", string="Rotation axis", val=[1.0, 0.0, 0.0], units=1, field="IM"
             )
             self.files: list[bytes] = []
             self.clock = (0.0, 0.0)
@@ -531,16 +552,17 @@ def _plugin_class(
             return _run(self, gateway, self._scan)
 
         async def _scan(self) -> bool:
+            centre = MARGE_AXES @ np.asarray(self.mapVals["dfov"], dtype=float)
             rotation, offset = prescription(
                 str(self.mapVals["orientation"]),
                 float(self.mapVals["angle"]),
-                self.mapVals["rotationAxis"],
-                self.mapVals["dfov"],
+                MARGE_AXES @ np.asarray(self.mapVals["rotationAxis"], dtype=float),
+                centre,
             )
             values = {name: self.mapVals[name] for name in names}
-            for index, name in enumerate(FOV_SIZE):
+            for name, axis in zip(FOV_SIZE, _marge_axes(rotation), strict=True):
                 if name in sizes:
-                    values[name] = float(self.mapVals["fov"][index]) / cm_per_unit(name)
+                    values[name] = float(self.mapVals["fov"][axis]) / cm_per_unit(name)
             block = format_values(values, entries, rotation, offset)
             generated = await _answer(gateway.request("generate", plugin=plugin, block=block))
             if generated["status"] != 0:
@@ -563,7 +585,7 @@ def _plugin_class(
                     on_message=received,
                     design=generated["design"],
                     rotation=rotation.ravel().tolist(),
-                    centre_mm=[float(c) for c in self.mapVals["dfov"]],
+                    centre_mm=centre.tolist(),
                     sound=SPEAKER is not None,
                 )
             )
