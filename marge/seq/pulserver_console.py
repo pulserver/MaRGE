@@ -422,10 +422,15 @@ def _run(sequence: Any, gateway: Any, work: Callable[[], Any]) -> bool:
 
 
 def _image_output(images: Sequence[tuple[np.ndarray, Any]]) -> list[dict]:
+    """Return MaRGE's output for DICOM images, drawn with their columns across and rows down.
+
+    MaRGE's image plot draws an array's first axis across, so each image is
+    handed over transposed.
+    """
     return [
         {
             "widget": "image",
-            "data": pixels[np.newaxis],
+            "data": pixels.T[np.newaxis],
             "xLabel": "",
             "yLabel": "",
             "title": str(getattr(dataset, "SeriesDescription", "")),

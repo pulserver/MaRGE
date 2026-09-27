@@ -359,7 +359,7 @@ def _dicom(pixels, description):
     return buffer.getvalue()
 
 
-def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_as_its_images(tmp_path):
+def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_drawn_as_dicom_displays_them(tmp_path):
     pixels = [np.arange(12).reshape(3, 4), np.ones((3, 4))]
     files = [_dicom(p, "Localizer") for p in pixels]
     gateway = _Scripted({"exam": {"reply": {"localizer": [base64.b64encode(f).decode() for f in files]}}})
@@ -371,7 +371,7 @@ def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_as_its_i
     output = sequence.sequenceAnalysis()
 
     assert [item["widget"] for item in output] == ["image", "image"]
-    np.testing.assert_array_equal(output[1]["data"], 2.0 * pixels[1][np.newaxis])
+    np.testing.assert_array_equal(output[0]["data"], 2.0 * pixels[0].T[np.newaxis])
     assert sequence.saved_with == []
     written = sorted(os.listdir(tmp_path / "dcm"))
     assert written == ["Localizer.2026.09.27.0001.dcm", "Localizer.2026.09.27.0002.dcm"]
