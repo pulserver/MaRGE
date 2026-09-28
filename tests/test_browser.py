@@ -2,13 +2,16 @@
 
 Runs where ``MARGE_WEB`` is the address the page of ``web/build.py`` is served
 at and ``MARGE_PULSERVER`` the WebSocket address of a ``pulserver console``
-that has the ``gre2d`` plugin and a reconstruction proxy behind it.
-``CHROMIUM`` names a Chromium to run instead of Playwright's own.
+that has the ``gre2d`` plugin and reconstructs its scans. ``CHROMIUM`` names a
+Chromium to run instead of Playwright's own.
 """
 
 import json
 import os
+import socket
+import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -40,19 +43,52 @@ def page():
         browser.close()
 
 
-def test_a_console_that_cannot_be_reached_is_named_before_python_is_downloaded():
+def _free_port():
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def test_a_page_waits_for_its_console_and_goes_on_once_it_answers():
     sync_api = pytest.importorskip("playwright.sync_api")
+    websockets = pytest.importorskip("websockets.sync.server")
+    address = f"ws://127.0.0.1:{_free_port()}"
     with sync_api.sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
         tab = browser.new_page()
-        tab.goto(f"{WEB}/index.html?console=ws://127.0.0.1:9")
-        tab.wait_for_function("window.marge && window.marge.error", timeout=60_000)
-        error = tab.evaluate("window.marge.error")
-        python = tab.evaluate("'pyodide' in window")
+        tab.goto(f"{WEB}/index.html?console={address}")
+        tab.wait_for_function("window.marge && window.marge.waiting", timeout=60_000)
+        waiting = tab.evaluate("[window.marge.waiting, 'pyodide' in window]")
+        port = int(address.rsplit(":", 1)[1])
+        with websockets.serve(lambda connection: None, "127.0.0.1", port) as server:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            tab.wait_for_function("window.marge.waiting === null", timeout=60_000)
+            server.shutdown()
         browser.close()
 
-    assert "cannot reach pulserver's console at ws://127.0.0.1:9" in error
-    assert not python
+    assert waiting == [address, False]
+
+
+def test_a_page_looking_for_this_computers_console_says_how_to_start_it():
+    sync_api = pytest.importorskip("playwright.sync_api")
+    with socket.socket() as probe:
+        if probe.connect_ex(("127.0.0.1", 8765)) == 0:
+            pytest.skip("a console answers where the page looks for one")
+    with sync_api.sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
+        tab = browser.new_page()
+        tab.goto(f"{WEB}/index.html")
+        tab.wait_for_function("window.marge && window.marge.waiting", timeout=60_000)
+        command = tab.inner_text("#command")
+        with tab.expect_download() as download:
+            tab.click("#launcher")
+        launcher = Path(download.value.path()).read_text()
+        browser.close()
+
+    assert command.startswith("docker run -d --restart unless-stopped --name pulserver ")
+    assert command.endswith(" -p 127.0.0.1:8765:8765 ghcr.io/pulserver/pulserver")
+    assert "docker run --pull always -d --restart unless-stopped" in launcher
+    assert f'start "" "{WEB}/index.html"' in launcher
 
 
 def _python(page, code):

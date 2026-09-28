@@ -9,6 +9,25 @@ DICOM. The subject's name chooses the phantom (`brainweb`, or the vials
 otherwise), and each exam opens on its three-plane localizer, drawn from the
 phantom's ground truth.
 
+## Open it
+
+The page is served at <https://pulserver.github.io/MaRGE/>. pulserver runs
+beside it in Docker, on the same computer; with Docker running, start it once:
+
+```bash
+docker run -d --restart unless-stopped --name pulserver -p 127.0.0.1:8765:8765 ghcr.io/pulserver/pulserver
+```
+
+The page shows this command, with a launcher for Windows that runs it and
+opens the page again, whenever nothing answers on port 8765, and connects as
+soon as pulserver does. Docker starts the container again with itself, so the
+page connects at once on later visits. The image carries pulserver with
+bartorch, which samples the head coils, and reconstructs each scan in its own
+process. `docker rm -f pulserver` removes it; running the command again after
+`docker pull ghcr.io/pulserver/pulserver` updates it, as the launcher does.
+Browsers that restrict public pages' access to local services ask the viewer's
+permission first.
+
 ## Build and serve
 
 ```bash
@@ -22,26 +41,21 @@ wheels of MaRGE's other dependencies at the versions of `uv.lock`, and MaRGE
 itself. `--pyodide DIR` takes the packages from an unpacked Pyodide release
 instead of its CDN.
 
-Start a console, with a reconstruction proxy behind it, and open the page with
-its address:
+Open `http://127.0.0.1:8000/index.html` with pulserver's image running as
+above, whose console serves pages from this address and from the hosted page.
+Another console is named with its address:
 
 ```
 http://127.0.0.1:8000/index.html?console=ws://127.0.0.1:8765
 ```
 
 Without `console`, a page served over HTTP connects to port 8765 on its own
-host. pulserver's `docker/compose.yaml` starts the console with Gadgetron
-behind the proxy.
-
-## The hosted page
-
-The page is also served at <https://pulserver.github.io/MaRGE/>. A page served
-over HTTPS may open an unencrypted WebSocket only to the computer it runs on,
-so without `console` it connects to `ws://localhost:8765`: start
-`pulserver console` there and open the page. A console on another computer is
-reached only over `wss://`, for example behind a reverse proxy that terminates
-TLS, and named as `?console=wss://HOST/PATH`. Browsers that restrict public
-pages' access to local services ask the viewer's permission first.
+host, and a page served over HTTPS to `ws://localhost:8765`, since such a page
+may open an unencrypted WebSocket only to the computer it runs on. A console
+on another computer is reached from it only over `wss://`, for example behind
+a reverse proxy that terminates TLS, and named as `?console=wss://HOST/PATH`.
+pulserver's `docker/compose.yaml` starts a console with Gadgetron behind its
+reconstruction proxy.
 
 ## What differs from MaRGE on a desktop
 
@@ -61,8 +75,9 @@ pages' access to local services ask the viewer's permission first.
 ## Test
 
 `tests/test_browser.py` drives the page in Chromium from the exam to a
-reconstructed scan, given `MARGE_WEB` and `MARGE_PULSERVER`; the Browser
-workflow runs it against a console built from pulserver's main branch.
+reconstructed scan, given `MARGE_WEB` and `MARGE_PULSERVER`, and checks that a
+page with no console answering waits for one and says how to start it; the
+Browser workflow runs it against pulserver's image built from its main branch.
 
 ## Licences
 
