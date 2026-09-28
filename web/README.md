@@ -44,10 +44,13 @@ to local services ask the viewer's permission first.
    dragging the box moves it and dragging its corner handle resizes it, which
    sets the field of view and its centre of every sequence.
 4. *Acquire*, the ▷| button of the sequence toolbar, scans the selected
-   sequence. The status bar shows the scan clock, the sound plays as the scan
-   streams, and the reconstruction is drawn and listed in the history on the
-   right, where double-clicking a scan draws it again. *Localizer*, the map
-   pin, draws the localizer again.
+   sequence. pulserver simulates the scan ahead of its clock, and the status
+   bar shows *preparing* with the time left until the simulation is far enough
+   ahead for the clock to run as a scanner's would, without stopping. The
+   status bar then shows the scan clock, the sound plays as the scan streams,
+   and the reconstruction is drawn and listed in the history on the right,
+   where double-clicking a scan draws it again. *Localizer*, the map pin,
+   draws the localizer again.
 5. Closing the main window returns to the session window, where another
    subject starts another exam.
 

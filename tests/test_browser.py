@@ -181,18 +181,19 @@ json.dumps(None)
     )
 
     history = _until(page, PRELUDE + "json.dumps(len(history) == 2 and history)")
-    files, clock, played = _python(
+    files, prepared, clock, played = _python(
         page,
         PRELUDE
         + """
 from marge.seq import pulserver_console as console
 sequence = defaultsequences["gre2d"]
-json.dumps([len(sequence.files), sequence.clock, console.SPEAKER.played])
+json.dumps([len(sequence.files), sequence.prepared, sequence.clock, console.SPEAKER.played])
 """,
     )
 
     assert history[1].split(" | ")[1].startswith("gre2d.")
     assert files >= 1
+    assert prepared >= 1
     assert clock[0] == pytest.approx(clock[1]) and clock[1] > 0.0
     assert played == pytest.approx(clock[1], rel=0.01)
 
