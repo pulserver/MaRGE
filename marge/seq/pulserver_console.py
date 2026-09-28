@@ -238,7 +238,7 @@ class Gateway:
     ) -> dict:
         """Send one request and return its last reply; ``on_message`` sees every earlier one.
 
-        A scan answers with its clock and images before its ``done`` reply;
+        A scan answers with its preparation, clock and images before its ``done`` reply;
         every other call answers once. A reply carrying ``error`` is raised.
         """
         self._next += 1
@@ -408,6 +408,13 @@ def _show_clock(name: str, clock: float, duration: float) -> None:
         TOOLBAR.main.statusBar().showMessage(f"{name}: {clock:.1f} s of {duration:.1f} s")
 
 
+def _show_preparing(name: str, left: float | None) -> None:
+    """Show that a scan is simulated ahead of its clock, and the time left, in s, where known."""
+    if TOOLBAR is not None:
+        text = "preparing" if left is None else f"preparing, {left:.0f} s left"
+        TOOLBAR.main.statusBar().showMessage(f"{name}: {text}")
+
+
 def sequence_classes(
     gateway: Any, entries: Mapping[str, Mapping[str, Mapping[str, Any]]]
 ) -> dict[str, type]:
@@ -570,6 +577,7 @@ def _plugin_class(
             )
             self.files: list[bytes] = []
             self.clock = (0.0, 0.0)
+            self.prepared = 0
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
             return _run(self, gateway, self._scan)
@@ -593,7 +601,10 @@ def _plugin_class(
             files = []
 
             def received(message: dict) -> None:
-                if "clock" in message:
+                if "preparing" in message:
+                    self.prepared += 1
+                    _show_preparing(plugin, message["preparing"])
+                elif "clock" in message:
                     self.clock = (message["clock"], message["duration"])
                     _show_clock(plugin, *self.clock)
                     if "sound" in message and SPEAKER is not None:
