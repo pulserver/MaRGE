@@ -3,8 +3,8 @@
 The build is the PyQt6 build of Pyodide, the packages of the Pyodide release
 it was built from that MaRGE imports, the pure-Python wheels of MaRGE's other
 dependencies, and MaRGE itself. Serve ``web/dist`` over HTTP and open
-``index.html?console=ws://HOST:PORT`` with ``pulserver console`` listening
-there.
+``index.html`` with pulserver's console on port 8765 of that host, or
+``index.html?console=ws://HOST:PORT`` for a console elsewhere.
 
 Usage: ``python web/build.py [--pyodide DIR]``, where ``DIR`` holds an
 unpacked Pyodide release to take the packages from instead of its CDN.

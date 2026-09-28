@@ -9,10 +9,27 @@
   #screen { position: fixed; inset: 0; }
   #status { position: fixed; left: 16px; bottom: 16px; margin: 0; white-space: pre-wrap; max-width: calc(100% - 32px); }
   #status.failed { color: #ff8a80; }
+  #start { position: relative; z-index: 1; max-width: 760px; margin: 12vh auto 0; padding: 0 16px; }
+  #start h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
+  #start code { display: block; padding: 12px; margin: 12px 0; background: #0e151c; border: 1px solid #455364; border-radius: 4px; font: 13px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #start button, #start a.button { font: inherit; color: #e0e1e3; background: #26486b; border: 1px solid #346792; border-radius: 4px; padding: 6px 12px; margin-right: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+  #start p { margin: 12px 0; }
 </style>
 </head>
 <body>
 <div id="screen"></div>
+<div id="start" hidden>
+  <h1>Start pulserver on this computer</h1>
+  <p>MaRGE's page runs here; pulserver, which designs, simulates and reconstructs
+  each scan, runs in Docker on this computer. With Docker running, start it once:</p>
+  <code id="command"></code>
+  <button id="copy" type="button">Copy the command</button>
+  <a id="launcher" class="button" download="start-pulserver.bat">Windows: download a launcher</a>
+  <p>The launcher runs the same command, updating pulserver first, and opens this
+  page again. This page connects as soon as pulserver answers, and Docker starts
+  pulserver again with itself. When the browser asks whether this page may
+  connect to devices on the local network, allow it: pulserver is one.</p>
+</div>
 <pre id="status">Loading MaRGE…</pre>
 <script type="module">
 import { loadPyodide } from "./pyodide/pyodide.mjs";
@@ -20,41 +37,73 @@ import { loadPyodide } from "./pyodide/pyodide.mjs";
 // The console is pulserver's, at ?console=ws://HOST:PORT. A page served over
 // HTTPS may open an unencrypted WebSocket to this computer only, so it looks for
 // the console here; a page served over HTTP looks on the host that served it.
-const address = new URLSearchParams(location.search).get("console")
+const named = new URLSearchParams(location.search).get("console");
+const address = named
   || (location.protocol === "https:"
     ? "ws://localhost:8765"
     : `ws://${location.hostname || "127.0.0.1"}:8765`);
+// pulserver's image runs its console on port 8765 of this computer.
+const COMMAND = "docker run -d --restart unless-stopped --name pulserver "
+  + "-p 127.0.0.1:8765:8765 ghcr.io/pulserver/pulserver";
 const status = document.getElementById("status");
 const show = (text) => { status.textContent = text; };
 const here = (path) => new URL(path, location.href).href;
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-window.marge = { ready: false, error: null, log: [] };
+window.marge = { ready: false, error: null, waiting: null, log: [] };
 const log = (line) => { window.marge.log.push(line); console.log(line); };
 
-// Opens and closes a connection to the console, before Python is downloaded.
-const reach = (url) => new Promise((resolve, reject) => {
+// Opens and closes a connection to the console; false when nothing answers.
+const reach = (url) => new Promise((resolve) => {
   let socket;
   try {
     socket = new WebSocket(url);
   } catch (error) {
-    reject(error);
+    resolve(false);
     return;
   }
-  socket.onopen = () => { socket.close(); resolve(); };
-  socket.onerror = () => reject(new Error("nothing answered"));
+  socket.onopen = () => { socket.close(); resolve(true); };
+  socket.onerror = () => resolve(false);
 });
+
+// A Windows batch file that starts pulserver's image, the newest, in place of
+// any earlier one, and opens this page again.
+const launcher = () => {
+  const page = (location.origin + location.pathname).replaceAll("%", "%%");
+  return [
+    "@echo off",
+    "rem Starts pulserver in Docker for MaRGE's page, then opens the page.",
+    "docker info >nul 2>&1 || (echo Docker is not running: start Docker Desktop, then run this again. & pause & exit /b 1)",
+    "docker rm -f pulserver >nul 2>&1",
+    `${COMMAND.replace("docker run", "docker run --pull always")} || (pause & exit /b 1)`,
+    `start "" "${page}"`,
+    "",
+  ].join("\r\n");
+};
+
+// Waits until the console answers, showing meanwhile how to start it on this
+// computer when the page looks for it here, and the address otherwise.
+async function untilAnswered() {
+  if (await reach(address)) return;
+  window.marge.waiting = address;
+  if (named || !/^ws:\/\/(localhost|127\.0\.0\.1):8765$/.test(address)) {
+    show(`Waiting for pulserver's console at ${address}…`);
+  } else {
+    document.getElementById("command").textContent = COMMAND;
+    document.getElementById("copy").onclick = () => navigator.clipboard.writeText(COMMAND);
+    document.getElementById("launcher").href = URL.createObjectURL(
+      new Blob([launcher()], { type: "application/octet-stream" }));
+    document.getElementById("start").hidden = false;
+    show(`Waiting for pulserver at ${address}…`);
+  }
+  while (!(await reach(address))) await pause(2000);
+  document.getElementById("start").hidden = true;
+  window.marge.waiting = null;
+}
 
 try {
   show(`Connecting to ${address}…`);
-  try {
-    await reach(address);
-  } catch (error) {
-    throw new Error(
-      `cannot reach pulserver's console at ${address}: ${error.message}\n\n`
-      + "Start `pulserver console` on this computer and reload, or name the console "
-      + "with ?console=ws://HOST:PORT. A page served over HTTPS reaches a console "
-      + "on another computer only over wss://.");
-  }
+  await untilAnswered();
   const manifest = await (await fetch("manifest.json")).json();
   show("Loading Python…");
   const pyodide = await loadPyodide({ indexURL: here("pyodide/"), stdout: log, stderr: log });
