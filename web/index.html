@@ -17,9 +17,13 @@
 <script type="module">
 import { loadPyodide } from "./pyodide/pyodide.mjs";
 
-// The console is pulserver's, at ?console=ws://HOST:PORT; by default on this page's host.
+// The console is pulserver's, at ?console=ws://HOST:PORT. A page served over
+// HTTPS may open an unencrypted WebSocket to this computer only, so it looks for
+// the console here; a page served over HTTP looks on the host that served it.
 const address = new URLSearchParams(location.search).get("console")
-  || `ws://${location.hostname || "127.0.0.1"}:8765`;
+  || (location.protocol === "https:"
+    ? "ws://localhost:8765"
+    : `ws://${location.hostname || "127.0.0.1"}:8765`);
 const status = document.getElementById("status");
 const show = (text) => { status.textContent = text; };
 const here = (path) => new URL(path, location.href).href;
@@ -27,7 +31,30 @@ const here = (path) => new URL(path, location.href).href;
 window.marge = { ready: false, error: null, log: [] };
 const log = (line) => { window.marge.log.push(line); console.log(line); };
 
+// Opens and closes a connection to the console, before Python is downloaded.
+const reach = (url) => new Promise((resolve, reject) => {
+  let socket;
+  try {
+    socket = new WebSocket(url);
+  } catch (error) {
+    reject(error);
+    return;
+  }
+  socket.onopen = () => { socket.close(); resolve(); };
+  socket.onerror = () => reject(new Error("nothing answered"));
+});
+
 try {
+  show(`Connecting to ${address}…`);
+  try {
+    await reach(address);
+  } catch (error) {
+    throw new Error(
+      `cannot reach pulserver's console at ${address}: ${error.message}\n\n`
+      + "Start `pulserver console` on this computer and reload, or name the console "
+      + "with ?console=ws://HOST:PORT. A page served over HTTPS reaches a console "
+      + "on another computer only over wss://.");
+  }
   const manifest = await (await fetch("manifest.json")).json();
   show("Loading Python…");
   const pyodide = await loadPyodide({ indexURL: here("pyodide/"), stdout: log, stderr: log });
@@ -39,7 +66,7 @@ try {
   const archive = await (await fetch(manifest.marge)).arrayBuffer();
   const sitePackages = pyodide.runPython("import site; site.getsitepackages()[0]");
   pyodide.unpackArchive(archive, "zip", { extractDir: sitePackages });
-  show(`Connecting to ${address}…`);
+  show("Starting MaRGE…");
   pyodide.globals.set("CONSOLE_ADDRESS", address);
   await pyodide.runPythonAsync("from marge.browser import boot\nawait boot.start(CONSOLE_ADDRESS)");
   status.hidden = true;
