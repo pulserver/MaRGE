@@ -164,6 +164,28 @@ def test_an_exam_returns_the_localizer_files_the_console_sends():
     assert socket.sent == [{"id": 1, "call": "exam", "subject": "vials"}]
 
 
+def test_an_exam_in_a_coil_names_it_to_the_console():
+    socket = _Socket([{"id": 1, "localizer": []}])
+    gateway = console.Gateway("ws://console", connect=lambda url: socket)
+
+    gateway.localizer("vials", "head32")
+
+    assert socket.sent == [{"id": 1, "call": "exam", "subject": "vials", "coil": "head32"}]
+
+
+@pytest.mark.parametrize(("rf_coil", "named"), [("head32", "head32"), ("RF01", None)])
+def test_an_exam_names_the_sessions_rf_coil_where_the_virtual_scanner_has_one_of_that_name(
+    rf_coil, named, capsys
+):
+    coils = [{"name": name, "transmit": 1, "receive": 1} for name in ("body", "head32")]
+    gateway = _Scripted({"coils": {"reply": {"coils": coils}}})
+
+    coil = asyncio.run(console.exam_coil(gateway, {"rf_coil": rf_coil}))
+
+    assert coil == named
+    assert ("keeps its coil" in capsys.readouterr().out) == (named is None)
+
+
 def test_without_a_gateway_address_marge_is_not_a_console(monkeypatch):
     monkeypatch.setattr(console, "GATEWAY", "")
 
@@ -367,14 +389,20 @@ def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_drawn_as
 ):
     pixels = [np.arange(12).reshape(3, 4), np.ones((3, 4))]
     files = [_dicom(p, "Localizer") for p in pixels]
-    gateway = _Scripted({"exam": {"reply": {"localizer": [base64.b64encode(f).decode() for f in files]}}})
-    gateway.localizer = lambda subject: console.Gateway.localizer(gateway, subject)
+    gateway = _Scripted(
+        {
+            "coils": {"reply": {"coils": [{"name": "head8", "transmit": 8, "receive": 8}]}},
+            "exam": {"reply": {"localizer": [base64.b64encode(f).decode() for f in files]}},
+        }
+    )
+    gateway.localizer = lambda subject, coil=None: console.Gateway.localizer(gateway, subject, coil)
     sequence = console._localizer_class(_Base, gateway)()
-    sequence.session = {"subject_name": "vials", "directory": str(tmp_path)}
+    sequence.session = {"subject_name": "vials", "rf_coil": "head8", "directory": str(tmp_path)}
 
     assert sequence.sequenceRun() is True
     output = sequence.sequenceAnalysis()
 
+    assert gateway.calls[-1] == ("exam", {"subject": "vials", "coil": "head8"})
     assert [item["widget"] for item in output] == ["image", "image"]
     np.testing.assert_array_equal(output[0]["data"], 2.0 * pixels[0].T[np.newaxis])
     assert sequence.saved_with == []

@@ -8,9 +8,9 @@ from typing import Any
 #: MaRGE's working directory in the tab's file system, which lasts as long as the tab.
 HOME = "/home/pyodide/marge"
 
-#: A project, a study, a Red Pitaya address and an RF coil, which MaRGE's
-#: session asks for and the virtual scanner does not use.
-PROJECT, STUDY, RED_PITAYA, COIL = "pulserver", "Phantom", "127.0.0.1", "virtual"
+#: A project, a study and a Red Pitaya address, which MaRGE's session asks for
+#: and the virtual scanner does not use.
+PROJECT, STUDY, RED_PITAYA = "pulserver", "Phantom", "127.0.0.1"
 
 _kept: list[Any] = []
 
@@ -22,7 +22,8 @@ async def start(address: str) -> Any:
     sequences, since no Qt handler may wait on the network in a tab, and
     scans play their sound through the tab's speaker. A tab
     starts with no configuration, so the session is configured with
-    :data:`PROJECT`, :data:`STUDY`, :data:`RED_PITAYA` and :data:`COIL`.
+    :data:`PROJECT`, :data:`STUDY` and :data:`RED_PITAYA`, and with the
+    virtual scanner's coils as its RF coils, the first selected.
     """
     from . import audio, qt5, runtime
 
@@ -34,6 +35,7 @@ async def start(address: str) -> Any:
     gateway = await console.AsyncGateway.open(address)
     console.install((gateway, await console.listings_async(gateway)))
     console.SPEAKER = audio.Speaker()
+    coils = await console.coil_names(gateway)
 
     os.makedirs(HOME, exist_ok=True)
     os.chdir(HOME)
@@ -47,13 +49,13 @@ async def start(address: str) -> Any:
 
     session = SessionController()
     if not os.path.exists("configs/sys_projects.csv"):
-        _configure(session)
+        _configure(session, coils)
     session.show()
     _kept[:] = [application, session]
     return session
 
 
-def _configure(session: Any) -> None:
+def _configure(session: Any, coils: list[str]) -> None:
     tab = session.tab_session
     for combo, name in ((tab.project_combo_box, PROJECT), (tab.study_combo_box, STUDY)):
         combo.addItem(name)
@@ -63,12 +65,13 @@ def _configure(session: Any) -> None:
     session.tab_console.add_rp()
     session.tab_console.save_rp_entries()
     session.tab_console.update_hw_config_rp()
-    session.tab_rf.text_box_1.setText(COIL)
-    session.tab_rf.text_box_2.setText("1.0")
-    session.tab_rf.add_rf()
+    for coil in coils:
+        session.tab_rf.text_box_1.setText(coil)
+        session.tab_rf.text_box_2.setText("1.0")
+        session.tab_rf.add_rf()
     session.tab_rf.save_rf_entries()
     session.tab_gradients.save_gradient_entries()
     session.tab_others.save_others_entries()
     with open("configs/b1Efficiency.csv", "w") as file:
-        file.write(f"{COIL}\n")
+        file.write(f"{coils[0]}\n")
     session.update_hardware()
