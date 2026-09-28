@@ -33,8 +33,9 @@ permission first.
 1. In the session window, *Subject name* chooses the exam's phantom:
    `brainweb` is BrainWeb's normal brain, which pulserver downloads on its
    first exam, and any other name the vials.
-   *RF coil* is the coil the exam is scanned in. *Launch GUI* opens the exam
-   on its three-plane localizer.
+   *RF coil* is the coils the exam is scanned in, named `transmit/receive`:
+   `body`, `body/head48` or `head8/head32`. *Launch GUI* opens the exam on its
+   three-plane localizer.
 2. The list at the top of the *Custom* tab selects the sequence: `gre2d`, one
    of pulserver's scanner-sequence plugins, or the `Localizer`. The *Sequence*
    tab holds the selected sequence's protocol, and the *Image* tab its field of

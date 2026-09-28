@@ -126,7 +126,7 @@ def test_the_session_opens_configured_for_the_virtual_scanner_with_its_coils_to_
         + " [combo.itemText(i) for i in range(combo.count())], combo.currentText()])",
     )
 
-    assert state == [True, PROJECT, ["body", "head8", "head32", "head48"], "body"]
+    assert state == [True, PROJECT, ["body", "body/head48", "head8/head32"], "body"]
 
 
 def test_an_exam_opens_on_the_localizer_of_the_subjects_phantom_among_pulservers_sequences_only(page):
