@@ -22,17 +22,17 @@ The page shows this command, with a launcher for Windows that runs it and
 opens the page again, whenever nothing answers on port 8765, and connects as
 soon as pulserver does. Docker starts the container again with itself, so the
 page connects at once on later visits. The image carries pulserver with
-bartorch, which samples the head coils, and reconstructs each scan in its own
-process. `docker rm -f pulserver` removes it; running the command again after
-`docker pull ghcr.io/pulserver/pulserver` updates it, as the launcher does.
-Browsers that restrict public pages' access to local services ask the viewer's
-permission first.
+bartorch, which samples the head coils, and BrainWeb's normal brain, and
+reconstructs each scan in its own process. `docker rm -f pulserver` removes
+it; running the command again after `docker pull ghcr.io/pulserver/pulserver`
+updates it, as the launcher does. Browsers that restrict public pages' access
+to local services ask the viewer's permission first.
 
 ## Scan
 
 1. In the session window, *Subject name* chooses the exam's phantom:
-   `brainweb` is BrainWeb's normal brain, which pulserver downloads on its
-   first exam, and any other name the vials.
+   `brainweb` is BrainWeb's normal brain, which pulserver's image carries, and
+   any other name the vials.
    *RF coil* is the coils the exam is scanned in, named `transmit/receive`:
    `body`, `body/head48` or `head8/head32`. *Launch GUI* opens the exam on its
    three-plane localizer.
