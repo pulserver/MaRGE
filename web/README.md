@@ -29,9 +29,19 @@ its address:
 http://127.0.0.1:8000/index.html?console=ws://127.0.0.1:8765
 ```
 
-Without `console`, the page connects to port 8765 on its own host.
-pulserver's `docker/compose.yaml` starts the console with Gadgetron behind the
-proxy.
+Without `console`, a page served over HTTP connects to port 8765 on its own
+host. pulserver's `docker/compose.yaml` starts the console with Gadgetron
+behind the proxy.
+
+## The hosted page
+
+The page is also served at <https://pulserver.github.io/MaRGE/>. A page served
+over HTTPS may open an unencrypted WebSocket only to the computer it runs on,
+so without `console` it connects to `ws://localhost:8765`: start
+`pulserver console` there and open the page. A console on another computer is
+reached only over `wss://`, for example behind a reverse proxy that terminates
+TLS, and named as `?console=wss://HOST/PATH`. Browsers that restrict public
+pages' access to local services ask the viewer's permission first.
 
 ## What differs from MaRGE on a desktop
 

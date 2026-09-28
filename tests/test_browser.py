@@ -40,6 +40,21 @@ def page():
         browser.close()
 
 
+def test_a_console_that_cannot_be_reached_is_named_before_python_is_downloaded():
+    sync_api = pytest.importorskip("playwright.sync_api")
+    with sync_api.sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
+        tab = browser.new_page()
+        tab.goto(f"{WEB}/index.html?console=ws://127.0.0.1:9")
+        tab.wait_for_function("window.marge && window.marge.error", timeout=60_000)
+        error = tab.evaluate("window.marge.error")
+        python = tab.evaluate("'pyodide' in window")
+        browser.close()
+
+    assert "cannot reach pulserver's console at ws://127.0.0.1:9" in error
+    assert not python
+
+
 def _python(page, code):
     """Run ``code`` in the tab and return its last expression, which is JSON."""
     return json.loads(page.evaluate("code => window.pyodide.runPythonAsync(code)", code))
