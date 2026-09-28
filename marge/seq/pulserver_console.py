@@ -255,9 +255,12 @@ class Gateway:
             if on_message is not None:
                 on_message(reply)
 
-    def localizer(self, subject: str) -> list[bytes]:
-        """Start an exam on ``subject`` and return its three-plane localizer, as DICOM files."""
-        reply = self.request("exam", subject=subject)
+    def localizer(self, subject: str, coil: str | None = None) -> list[bytes]:
+        """Start an exam on ``subject`` in ``coil`` and return its three-plane localizer, as DICOM files.
+
+        Without ``coil``, the exam keeps the coil the console has.
+        """
+        reply = self.request("exam", subject=subject, **_named(coil))
         return [base64.b64decode(f) for f in reply["localizer"]]
 
 
@@ -302,10 +305,14 @@ class AsyncGateway:
             if on_message is not None:
                 on_message(reply)
 
-    async def localizer(self, subject: str) -> list[bytes]:
-        """Start an exam on ``subject`` and return its three-plane localizer, as DICOM files."""
-        reply = await self.request("exam", subject=subject)
+    async def localizer(self, subject: str, coil: str | None = None) -> list[bytes]:
+        """Start an exam on ``subject`` in ``coil`` and return its three-plane localizer, as :meth:`Gateway.localizer` does."""
+        reply = await self.request("exam", subject=subject, **_named(coil))
         return [base64.b64decode(f) for f in reply["localizer"]]
+
+
+def _named(coil: str | None) -> dict[str, str]:
+    return {} if coil is None else {"coil": coil}
 
 
 class _BrowserSocket:
@@ -344,6 +351,21 @@ class _BrowserSocket:
 
 async def _answer(reply: Any) -> Any:
     return await reply if inspect.isawaitable(reply) else reply
+
+
+async def coil_names(gateway: Any) -> list[str]:
+    """Return the names of the virtual scanner's coils, on either kind of gateway."""
+    return [coil["name"] for coil in (await _answer(gateway.request("coils")))["coils"]]
+
+
+async def exam_coil(gateway: Any, session: Mapping[str, Any]) -> str | None:
+    """Return the session's RF coil where the virtual scanner has a coil of that name; else None, and say so."""
+    name = str(session.get("rf_coil", "") or "")
+    names = await coil_names(gateway)
+    if name in names:
+        return name
+    print(f"The virtual scanner's coils are {names}, not {name!r}: the exam keeps its coil.")
+    return None
 
 
 def listings(gateway: Gateway) -> dict[str, dict[str, dict[str, Any]]]:
@@ -496,8 +518,9 @@ def _localizer_class(base: type, gateway: Any) -> type:
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
             async def work() -> bool:
-                subject = subject_phantom(getattr(self, "session", {}) or {})
-                self.files = await _answer(gateway.localizer(subject))
+                session = getattr(self, "session", {}) or {}
+                coil = await exam_coil(gateway, session)
+                self.files = await _answer(gateway.localizer(subject_phantom(session), coil))
                 return True
 
             return _run(self, gateway, work)

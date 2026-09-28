@@ -37,8 +37,10 @@ proxy.
 
 - MaRGE's sequences are pulserver's scanner-sequence plugins and its
   localizer; its own sequences are hidden, and no MaRCoS hardware is driven.
-- The session starts configured with a project, a study, a Red Pitaya address
-  and an RF coil, which the virtual scanner does not use.
+- The session starts configured with a project, a study and a Red Pitaya
+  address, which the virtual scanner does not use, and with the virtual
+  scanner's coils as its RF coils: the one selected is the coil each exam is
+  scanned in.
 - The tab has no threads, processes or serial ports (`marge/browser`): a
   thread runs on the event loop, and the modules without a WebAssembly build
   import as stand-ins that raise when used.
