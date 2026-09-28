@@ -9,6 +9,7 @@ import threading
 
 from PyQt5.QtCore import QEvent
 
+from marge.seq.pulserver_console import console_mode, register_console
 from marge.seq.sequences import defaultsequences
 from marge.ui.window_main import MainWindow
 import marge.autotuning.autotuning as autotuning
@@ -17,6 +18,10 @@ import marge.configs.hw_config as hw
 
 class MainController(MainWindow):
     def __init__(self, *args, **kwargs):
+        # As the console of pulserver's virtual scanner, MaRGE drives no MaRCoS
+        # hardware, as in demo mode.
+        if console_mode():
+            kwargs["demo"] = True
         super(MainController, self).__init__(*args, **kwargs)
 
         self.set_session(self.session)
@@ -35,8 +40,15 @@ class MainController(MainWindow):
             self.arduino_interlock = autotuning.Arduino(hw.ard_br_interlock)
             self.arduino_interlock.connect(serial_number=hw.ard_sn_interlock)
 
+        # As the console of pulserver's virtual scanner, an exam opens on the
+        # localizer of the subject's phantom, which needs no scan.
+        if console_mode():
+            register_console(self.toolbar_sequences)
+            if "Localizer" in defaultsequences:
+                self.toolbar_sequences.startAcquisition(seq_name="Localizer")
+
     def set_demo(self, demo):
-        self.demo = demo
+        self.demo = demo or console_mode()
 
     def set_session(self, session):
         # Set window title
@@ -47,6 +59,10 @@ class MainController(MainWindow):
             sequence.session = session
 
     def initializeThread(self):
+        # The sniffers run the waiting list on the MaRCoS server, which a
+        # console of pulserver's virtual scanner does not have.
+        if console_mode():
+            return
         # Start the sniffer
         thread = threading.Thread(target=self.history_list.waitingForRun)
         thread.start()

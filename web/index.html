@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MaRGE</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #19232d; color: #e0e1e3; font: 14px/1.5 system-ui, sans-serif; }
+  #screen { position: fixed; inset: 0; }
+  #status { position: fixed; left: 16px; bottom: 16px; margin: 0; white-space: pre-wrap; max-width: calc(100% - 32px); }
+  #status.failed { color: #ff8a80; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<pre id="status">Loading MaRGE…</pre>
+<script type="module">
+import { loadPyodide } from "./pyodide/pyodide.mjs";
+
+// The console is pulserver's, at ?console=ws://HOST:PORT; by default on this page's host.
+const address = new URLSearchParams(location.search).get("console")
+  || `ws://${location.hostname || "127.0.0.1"}:8765`;
+const status = document.getElementById("status");
+const show = (text) => { status.textContent = text; };
+const here = (path) => new URL(path, location.href).href;
+
+window.marge = { ready: false, error: null, log: [] };
+const log = (line) => { window.marge.log.push(line); console.log(line); };
+
+try {
+  const manifest = await (await fetch("manifest.json")).json();
+  show("Loading Python…");
+  const pyodide = await loadPyodide({ indexURL: here("pyodide/"), stdout: log, stderr: log });
+  pyodide._module.qtContainerElements = [document.getElementById("screen")];
+  window.pyodide = pyodide;
+  show("Loading packages…");
+  await pyodide.loadPackage(manifest.packages);
+  await pyodide.loadPackage(manifest.wheels.map((name) => here(`wheels/${name}`)));
+  const archive = await (await fetch(manifest.marge)).arrayBuffer();
+  const sitePackages = pyodide.runPython("import site; site.getsitepackages()[0]");
+  pyodide.unpackArchive(archive, "zip", { extractDir: sitePackages });
+  show(`Connecting to ${address}…`);
+  pyodide.globals.set("CONSOLE_ADDRESS", address);
+  await pyodide.runPythonAsync("from marge.browser import boot\nawait boot.start(CONSOLE_ADDRESS)");
+  status.hidden = true;
+  window.marge.ready = true;
+} catch (error) {
+  status.classList.add("failed");
+  show(`MaRGE did not start: ${error}`);
+  window.marge.error = String(error);
+}
+</script>
+</body>
+</html>

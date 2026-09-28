@@ -18,6 +18,9 @@ Definition of default sequences
 # This file should not be modified anymore.
 
 def instantiate_sequences():
+    # As the console of pulserver's virtual scanner, MaRGE shows pulserver's sequences only.
+    from marge.seq.pulserver_console import console_mode
+
     # Get the absolute path to this folder (marge/seq)
     folder = os.path.dirname(__file__)
 
@@ -42,7 +45,8 @@ def instantiate_sequences():
             # Add to defaultsequences only if toMaRGE is True
             for class_name, class_ in classes:
                 try:
-                    if class_().mapVals['toMaRGE']:
+                    if class_().mapVals['toMaRGE'] and (
+                            not console_mode() or class_().mapVals.get('pulserverConsole')):
                         defaultsequences[class_().mapVals['seqName']] = class_()
                         print(f"{class_().mapVals['seqName']} added to MaRGE")
                 except:
