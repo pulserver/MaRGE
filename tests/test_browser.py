@@ -151,6 +151,21 @@ json.dumps(None)
     assert names == ["Localizer", "gre2d"]
 
 
+def test_the_console_offers_acquire_and_the_localizer_and_not_what_needs_marcos(page):
+    enabled = _python(
+        page,
+        PRELUDE
+        + """
+bar = main.toolbar_sequences
+actions = (bar.action_acquire, bar.action_localizer, bar.action_add_to_list, bar.action_iterate,
+           bar.action_autocalibration, bar.action_bender, bar.action_view_sequence)
+json.dumps([action.isVisible() and action.isEnabled() for action in actions])
+""",
+    )
+
+    assert enabled == [True, True, False, False, False, False, False]
+
+
 def test_a_scan_of_marges_protocol_plays_its_sound_and_returns_its_reconstruction(page):
     _python(
         page,
@@ -158,7 +173,9 @@ def test_a_scan_of_marges_protocol_plays_its_sound_and_returns_its_reconstructio
         + """
 sequence = defaultsequences["gre2d"]
 sequence.mapVals["nx"] = sequence.mapVals["ny"] = 32
-main.toolbar_sequences.startAcquisition(seq_name="gre2d")
+main.sequence_list.setCurrentText("gre2d")
+bar = main.toolbar_sequences
+bar.widgetForAction(bar.action_acquire).click()
 json.dumps(None)
 """,
     )
@@ -178,3 +195,31 @@ json.dumps([len(sequence.files), sequence.clock, console.SPEAKER.played])
     assert files >= 1
     assert clock[0] == pytest.approx(clock[1]) and clock[1] > 0.0
     assert played == pytest.approx(clock[1], rel=0.01)
+
+
+def test_another_subject_in_the_session_window_opens_another_exam_on_its_localizer(page):
+    _python(
+        page,
+        PRELUDE
+        + """
+main.close()
+session.tab_session.name_line_edit.setText("phantom")
+session.launch_gui_action.trigger()
+json.dumps(None)
+""",
+    )
+
+    history = _until(page, PRELUDE + "json.dumps(len(history) == 1 and history)")
+    subjects = _python(
+        page,
+        PRELUDE
+        + """
+import io
+import pydicom
+files = defaultsequences["Localizer"].files
+json.dumps(sorted({str(pydicom.dcmread(io.BytesIO(data)).PatientName) for data in files}))
+""",
+    )
+
+    assert history[0].split(" | ")[1].startswith("Localizer.")
+    assert subjects == ["phantom"]

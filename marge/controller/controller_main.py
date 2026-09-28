@@ -40,12 +40,8 @@ class MainController(MainWindow):
             self.arduino_interlock = autotuning.Arduino(hw.ard_br_interlock)
             self.arduino_interlock.connect(serial_number=hw.ard_sn_interlock)
 
-        # As the console of pulserver's virtual scanner, an exam opens on the
-        # localizer of the subject's phantom, which needs no scan.
         if console_mode():
             register_console(self.toolbar_sequences)
-            if "Localizer" in defaultsequences:
-                self.toolbar_sequences.startAcquisition(seq_name="Localizer")
 
     def set_demo(self, demo):
         self.demo = demo or console_mode()
@@ -57,6 +53,16 @@ class MainController(MainWindow):
         # Add the session to all sequences
         for sequence in defaultsequences.values():
             sequence.session = session
+        # As the console of pulserver's virtual scanner, a session is an exam
+        # on the phantom its subject names, which opens on its localizer when
+        # the window shows; the localizer needs no scan.
+        self.exam_opened = not console_mode()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self.exam_opened:
+            self.exam_opened = True
+            self.toolbar_sequences.startLocalizer()
 
     def initializeThread(self):
         # The sniffers run the waiting list on the MaRCoS server, which a

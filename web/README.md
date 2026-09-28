@@ -28,6 +28,28 @@ process. `docker rm -f pulserver` removes it; running the command again after
 Browsers that restrict public pages' access to local services ask the viewer's
 permission first.
 
+## Scan
+
+1. In the session window, *Subject name* chooses the exam's phantom:
+   `brainweb` is BrainWeb's normal brain, which pulserver downloads on its
+   first exam, and any other name the vials.
+   *RF coil* is the coil the exam is scanned in. *Launch GUI* opens the exam
+   on its three-plane localizer.
+2. The list at the top of the *Custom* tab selects the sequence: `gre2d`, one
+   of pulserver's scanner-sequence plugins, or the `Localizer`. The *Sequence*
+   tab holds the selected sequence's protocol, and the *Image* tab its field of
+   view, orientation, FOV centre and rotation.
+3. The *FOV* button of a localizer plane draws the field of view on it;
+   dragging the box moves it and dragging its corner handle resizes it, which
+   sets the field of view and its centre of every sequence.
+4. *Acquire*, the ▷| button of the sequence toolbar, scans the selected
+   sequence. The status bar shows the scan clock, the sound plays as the scan
+   streams, and the reconstruction is drawn and listed in the history on the
+   right, where double-clicking a scan draws it again. *Localizer*, the map
+   pin, draws the localizer again.
+5. Closing the main window returns to the session window, where another
+   subject starts another exam.
+
 ## Build and serve
 
 ```bash
@@ -61,6 +83,9 @@ reconstruction proxy.
 
 - MaRGE's sequences are pulserver's scanner-sequence plugins and its
   localizer; its own sequences are hidden, and no MaRCoS hardware is driven.
+  *Acquire* and *Localizer* run on the console at once, and the waiting list,
+  the autocalibration and the sequence plot, which need the MaRCoS server or
+  MaRGE's own sequences, are disabled.
 - The session starts configured with a project, a study and a Red Pitaya
   address, which the virtual scanner does not use, and with the virtual
   scanner's coils as its RF coils: the one selected is the coil each exam is
@@ -75,9 +100,10 @@ reconstruction proxy.
 ## Test
 
 `tests/test_browser.py` drives the page in Chromium from the exam to a
-reconstructed scan, given `MARGE_WEB` and `MARGE_PULSERVER`, and checks that a
-page with no console answering waits for one and says how to start it; the
-Browser workflow runs it against pulserver's image built from its main branch.
+reconstructed scan and on to another exam, given `MARGE_WEB` and
+`MARGE_PULSERVER`, and checks that a page with no console answering waits for
+one and says how to start it; the Browser workflow runs it against pulserver's
+image built from its main branch.
 
 ## Licences
 
