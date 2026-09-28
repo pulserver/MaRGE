@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import QLabel, QFileDialog, QApplication, QWidget
 
 from marge.controller.controller_plot3d import Plot3DController as Spectrum3DPlot
 from marge.controller.controller_plot1d import Plot1DController as SpectrumPlot
+from marge.seq.pulserver_console import console_mode
 from marge.seq.sequences import defaultsequences
 from marge.widgets.widget_toolbar_sequences import SequenceToolBar
 import marge.configs.hw_config as hw
@@ -349,6 +350,13 @@ class SequenceController(SequenceToolBar):
 
         print('Start localizer')
 
+        # pulserver's console draws the three planes of the exam's phantom in
+        # one run, which starts at once.
+        if console_mode():
+            if 'Localizer' in defaultsequences:
+                self.startAcquisition(seq_name='Localizer')
+            return
+
         # Load sequence name
         seq_name = 'Localizer'
 
@@ -640,7 +648,19 @@ class SequenceController(SequenceToolBar):
             certain actions including 'action_acquire', 'action_localizer', 'action_autocalibration', 'action_bender',
             'action_view_sequence', and 'action_add_to_list'. If the server is not connected (unchecked), it disables these actions.
         """
-        if self.main.toolbar_marcos.action_server.isChecked():
+        if console_mode():
+            # pulserver's console runs each scan at once, with no MaRCoS server,
+            # so Acquire, which MaRGE otherwise hides, runs the scans. The
+            # waiting list, which the sniffers play on that server, MaRGE's
+            # calibration sequences and the sequence plot have no counterpart
+            # on the console.
+            self.action_acquire.setVisible(True)
+            for action in (self.action_acquire, self.action_localizer):
+                action.setEnabled(True)
+            for action in (self.action_autocalibration, self.action_bender, self.action_view_sequence,
+                           self.action_add_to_list, self.action_iterate):
+                action.setEnabled(False)
+        elif self.main.toolbar_marcos.action_server.isChecked():
             self.action_acquire.setDisabled(False)
             self.action_localizer.setDisabled(False)
             self.action_autocalibration.setDisabled(False)
