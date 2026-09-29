@@ -4,10 +4,9 @@ MaRGE runs in a browser tab as the console of
 [pulserver](https://github.com/pulserver/pulserver)'s virtual scanner. The
 parameters and the prescription set in MaRGE travel to `pulserver console` in
 the interpreter's text blocks; pulserver designs the sequence, builds its IR,
-plays it on a phantom and reconstructs it, and the images return to MaRGE as
-DICOM. The subject's name chooses the phantom (`brainweb`, or the vials
-otherwise), and each exam opens on its three-plane localizer, drawn from the
-phantom's ground truth.
+plays it on BrainWeb's normal brain, in coils whose fields are solved in that
+brain, and reconstructs it, and the images return to MaRGE as DICOM. Each exam
+opens on its three-plane localizer, drawn from the brain's ground truth.
 
 ## Open it
 
@@ -22,7 +21,8 @@ The page shows this command, with a launcher for Windows that runs it and
 opens the page again, whenever nothing answers on port 8765, and connects as
 soon as pulserver does. Docker starts the container again with itself, so the
 page connects at once on later visits. The image carries pulserver with
-bartorch, which samples the head coils, and BrainWeb's normal brain, and
+BrainWeb's normal brain, the coils' field maps solved in it by
+[mariepy](https://github.com/pulserver/mariepy), and bartorch, and
 reconstructs each scan in its own process. `docker rm -f pulserver` removes
 it; running the command again after `docker pull ghcr.io/pulserver/pulserver`
 updates it, as the launcher does. Browsers that restrict public pages' access
@@ -30,14 +30,14 @@ to local services ask the viewer's permission first.
 
 ## Scan
 
-1. In the session window, *Subject name* chooses the exam's phantom:
-   `brainweb` is BrainWeb's normal brain, which pulserver's image carries, and
-   any other name the vials.
+1. In the session window, *Subject name* names the exam, which is on
+   BrainWeb's normal brain whatever the name.
    *RF coil* is the coils the exam is scanned in, named `transmit/receive`:
    `body`, `body/head48` or `head8/head32`. *Launch GUI* opens the exam on its
    three-plane localizer.
-2. The list at the top of the *Custom* tab selects the sequence: `gre2d`, one
-   of pulserver's scanner-sequence plugins, or the `Localizer`. The *Sequence*
+2. The list at the top of the *Custom* tab selects the sequence: one of
+   pulserver's scanner-sequence plugins, `gre2d`, `gre_multiecho2d`, `se2d`,
+   `bssfp2d`, `gre_radial2d` and `gre_spiral2d`, or the `Localizer`. The *Sequence*
    tab holds the selected sequence's protocol, and the *Image* tab its field of
    view, orientation, FOV centre and rotation.
 3. The *FOV* button of a localizer plane draws the field of view on it;
