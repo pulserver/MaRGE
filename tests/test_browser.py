@@ -91,6 +91,14 @@ def test_a_page_looking_for_this_computers_console_says_how_to_start_it():
     assert f'start "" "{WEB}/index.html"' in launcher
 
 
+def _console_plugins():
+    """Return the sequence plugins the console serves."""
+    client = pytest.importorskip("websockets.sync.client")
+    with client.connect(CONSOLE, max_size=None) as connection:
+        connection.send(json.dumps({"id": 1, "call": "plugins"}))
+        return json.loads(connection.recv(timeout=60))["plugins"]
+
+
 def _python(page, code):
     """Run ``code`` in the tab and return its last expression, which is JSON."""
     return json.loads(page.evaluate("code => window.pyodide.runPythonAsync(code)", code))
@@ -148,7 +156,7 @@ json.dumps(None)
 
     assert history[0].split(" | ")[1].startswith("Localizer.")
     assert localizer == 3
-    assert names == ["Localizer", "gre2d"]
+    assert names == sorted(["Localizer", *_console_plugins()])
 
 
 def test_the_console_offers_acquire_and_the_localizer_and_not_what_needs_marcos(page):
