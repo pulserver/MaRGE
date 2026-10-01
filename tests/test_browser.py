@@ -9,6 +9,7 @@ Chromium to run instead of Playwright's own.
 import json
 import os
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -69,26 +70,92 @@ def test_a_page_waits_for_its_console_and_goes_on_once_it_answers():
     assert waiting == [address, False]
 
 
-def test_a_page_looking_for_this_computers_console_says_how_to_start_it():
+def _landing(tab):
+    tab.wait_for_function("window.marge && window.marge.landing", timeout=60_000)
+    return tab.evaluate("window.marge.landing")
+
+
+def _levels(tab):
+    return tab.evaluate(
+        "Object.fromEntries([...document.querySelectorAll('[data-check]')]"
+        ".map((dot) => [dot.dataset.check, dot.dataset.level]))"
+    )
+
+
+def test_a_landing_page_without_the_helper_offers_it_and_docker_s_own_command():
     sync_api = pytest.importorskip("playwright.sync_api")
-    with socket.socket() as probe:
-        if probe.connect_ex(("127.0.0.1", 8765)) == 0:
-            pytest.skip("a console answers where the page looks for one")
+    helper = f"http://127.0.0.1:{_free_port()}"
     with sync_api.sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
         tab = browser.new_page()
-        tab.goto(f"{WEB}/index.html")
-        tab.wait_for_function("window.marge && window.marge.waiting", timeout=60_000)
+        tab.goto(f"{WEB}/index.html?helper={helper}")
+        landing = _landing(tab)
         command = tab.inner_text("#command")
         with tab.expect_download() as download:
-            tab.click("#launcher")
-        launcher = Path(download.value.path()).read_text()
+            tab.click("#helper-download")
+        script = Path(download.value.path()).read_text()
         browser.close()
 
+    assert landing["helper"] is False
     assert command.startswith("docker run -d --restart unless-stopped --name pulserver ")
     assert command.endswith(" -p 127.0.0.1:8765:8765 ghcr.io/pulserver/pulserver")
-    assert "docker run --pull always -d --restart unless-stopped" in launcher
-    assert f'start "" "{WEB}/index.html"' in launcher
+    assert script == (Path(__file__).parent.parent / "web" / "pulserver_local.py").read_text()
+
+
+def test_a_landing_page_installs_pulserver_and_saves_the_scanner_through_the_helper(tmp_path, monkeypatch):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    from test_pulserver_local import FAKE, PUBLISHED, local
+
+    monkeypatch.setenv("PULSERVER_HOME", str(tmp_path / "home"))
+    (tmp_path / "docker.py").write_text(FAKE)
+    state = tmp_path / "docker.json"
+    state.write_text(json.dumps(
+        {"daemon": True, "images": {}, "containers": {}, "calls": [], "published": PUBLISHED}))
+    helper = local.Helper(
+        docker=[sys.executable, str(tmp_path / "docker.py"), str(state)],
+        published=lambda image: PUBLISHED,
+    )
+    port = _free_port()
+    server = local.serve(helper, port, (WEB.rstrip("/"),))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    sequences = tmp_path / "sequences"
+    sequences.mkdir()
+    try:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
+            tab = browser.new_page()
+            tab.goto(f"{WEB}/index.html?helper=http://127.0.0.1:{port}")
+            tab.wait_for_function("window.marge.landing && window.marge.landing.helper", timeout=60_000)
+            before = _levels(tab)
+            tab.click("[data-call=pull]")
+            tab.wait_for_function(
+                "document.querySelector('[data-check=Container]')?.dataset.level === 'ok'", timeout=60_000)
+            installed = _levels(tab)
+            tab.fill("input[name=B0]", "0.55")
+            tab.fill("input[name=grad_raster_time]", "10")
+            tab.click("#add-band")
+            band = tab.locator("#bands .band input")
+            band.nth(0).fill("500")
+            band.nth(1).fill("600")
+            tab.fill("input[name=sequences]", str(sequences))
+            tab.click("#save")
+            tab.wait_for_function("document.getElementById('saved').textContent === 'Saved.'", timeout=60_000)
+            tab.fill("input[name=recon]", str(tmp_path / "nowhere"))
+            tab.click("#save")
+            tab.wait_for_function("document.getElementById('saved').className === 'failed'", timeout=60_000)
+            refused = tab.inner_text("#saved")
+            browser.close()
+    finally:
+        server.shutdown()
+    settings = helper.settings()
+
+    assert before == {"Helper": "ok", "Docker": "ok", "Image": "warn", "Console": "off"}
+    assert installed["Image"] == "ok" and installed["Container"] == "ok"
+    assert settings["limits"]["B0"] == "0.55"
+    assert float(settings["limits"]["grad_raster_time"]) == pytest.approx(10e-6)
+    assert settings["limits"]["forbidden_band_1"] == "all 500 600"
+    assert settings["plugins"]["sequences"] == str(sequences)
+    assert "recon plugin directory does not exist" in refused
 
 
 def _console_plugins():
