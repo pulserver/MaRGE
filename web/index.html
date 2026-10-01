@@ -5,30 +5,117 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MaRGE</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #19232d; color: #e0e1e3; font: 14px/1.5 system-ui, sans-serif; }
+  html, body { margin: 0; min-height: 100%; background: #19232d; color: #e0e1e3; font: 14px/1.5 system-ui, sans-serif; }
   #screen { position: fixed; inset: 0; }
   #status { position: fixed; left: 16px; bottom: 16px; margin: 0; white-space: pre-wrap; max-width: calc(100% - 32px); }
   #status.failed { color: #ff8a80; }
-  #start { position: relative; z-index: 1; max-width: 760px; margin: 12vh auto 0; padding: 0 16px; }
-  #start h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
-  #start code { display: block; padding: 12px; margin: 12px 0; background: #0e151c; border: 1px solid #455364; border-radius: 4px; font: 13px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-  #start button, #start a.button { font: inherit; color: #e0e1e3; background: #26486b; border: 1px solid #346792; border-radius: 4px; padding: 6px 12px; margin-right: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
-  #start p { margin: 12px 0; }
+  #landing { position: relative; z-index: 1; max-width: 820px; margin: 6vh auto 64px; padding: 0 16px; }
+  #landing h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  #landing h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; border-bottom: 1px solid #455364; padding-bottom: 4px; }
+  #landing h3 { font-size: 13px; font-weight: 600; margin: 16px 0 6px; color: #9da9b5; }
+  #landing p { margin: 8px 0; }
+  #landing a { color: #8ec5ff; }
+  #landing code { display: block; padding: 10px 12px; margin: 8px 0; background: #0e151c; border: 1px solid #455364; border-radius: 4px; font: 13px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #landing pre { max-height: 160px; overflow: auto; padding: 8px; background: #0e151c; border: 1px solid #455364; border-radius: 4px; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
+  #landing button, #landing a.button { font: inherit; color: #e0e1e3; background: #26486b; border: 1px solid #346792; border-radius: 4px; padding: 5px 12px; margin: 2px 8px 2px 0; cursor: pointer; text-decoration: none; display: inline-block; }
+  #landing button:disabled { opacity: 0.5; cursor: default; }
+  #landing button.primary { background: #2e7d32; border-color: #43a047; font-weight: 600; }
+  .checks { display: grid; grid-template-columns: 16px minmax(90px, max-content) 1fr; gap: 8px 10px; align-items: start; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; background: #607080; }
+  .dot.ok { background: #43a047; } .dot.warn { background: #f9a825; } .dot.bad { background: #e53935; }
+  .checks .what { font-weight: 600; }
+  .form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 16px; }
+  .form label { display: flex; flex-direction: column; font-size: 12px; color: #9da9b5; }
+  #landing input, #landing select, #landing textarea { font: 13px ui-monospace, monospace; color: #e0e1e3; background: #0e151c; border: 1px solid #455364; border-radius: 4px; padding: 4px 6px; margin-top: 2px; min-width: 0; }
+  #landing textarea { width: 100%; box-sizing: border-box; min-height: 64px; }
+  .band { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+  .band input { width: 110px; }
+  .wide { grid-column: 1 / -1; }
+  #saved.failed { color: #ff8a80; }
 </style>
 </head>
 <body>
 <div id="screen"></div>
-<div id="start" hidden>
-  <h1>Start pulserver on this computer</h1>
-  <p>MaRGE's page runs here; pulserver, which designs, simulates and reconstructs
-  each scan, runs in Docker on this computer. With Docker running, start it once:</p>
-  <code id="command"></code>
-  <button id="copy" type="button">Copy the command</button>
-  <a id="launcher" class="button" download="start-pulserver.bat">Windows: download a launcher</a>
-  <p>The launcher runs the same command, updating pulserver first, and opens this
-  page again. This page connects as soon as pulserver answers, and Docker starts
-  pulserver again with itself. When the browser asks whether this page may
-  connect to devices on the local network, allow it: pulserver is one.</p>
+<div id="landing" hidden>
+  <h1>MaRGE on pulserver's virtual scanner</h1>
+  <p>This page is MaRGE. pulserver, which designs, simulates and reconstructs each
+  scan, runs in Docker on this computer, and a small helper keeps it installed,
+  up to date and configured with the scanner below.</p>
+
+  <h2>Status</h2>
+  <div class="checks" id="checks"></div>
+  <div id="helper-missing" hidden>
+    <p>The helper is a Python script that needs nothing but Python 3.8 or newer.
+    Download it and run it; it opens this page again and stays in its window while
+    the page is in use.</p>
+    <a id="helper-download" class="button" download="pulserver-local.py">Download the helper</a>
+    <code id="helper-command">python pulserver-local.py</code>
+    <p>Or, without the helper, start pulserver with Docker's default scanner:</p>
+    <code id="command"></code>
+    <button id="copy" type="button">Copy the command</button>
+  </div>
+  <pre id="task" hidden></pre>
+  <p>
+    <button id="open" class="primary" type="button" disabled>Open MaRGE</button>
+    <span id="open-why"></span>
+  </p>
+  <p>When the browser asks whether this page may connect to devices on the local
+  network, allow it: pulserver and the helper are such devices.</p>
+
+  <div id="config" hidden>
+  <h2>Scanner</h2>
+  <p>pulserver designs every sequence under these limits, which MaRGE's console
+  does not set. They are kept in <span id="path">a settings file</span>; saving
+  restarts pulserver with them.</p>
+  <form id="settings">
+    <fieldset id="fields" disabled style="border: 0; padding: 0; margin: 0;">
+      <h3>Field and gradients</h3>
+      <div class="form">
+        <label>B0 (T)<input name="B0" inputmode="decimal"></label>
+        <label>Max gradient<input name="max_grad" inputmode="decimal"></label>
+        <label>Gradient unit<select name="grad_unit"><option>mT/m</option><option>Hz/m</option><option>rad/ms/mm</option></select></label>
+        <label>Max slew rate<input name="max_slew" inputmode="decimal"></label>
+        <label>Slew unit<select name="slew_unit"><option>T/m/s</option><option>mT/m/ms</option><option>Hz/m/s</option><option>rad/ms/mm/ms</option></select></label>
+        <label>Design max gradient per logical axis<input name="design_max_grad" inputmode="decimal" placeholder="max / √3"></label>
+        <label>Design max slew per logical axis<input name="design_max_slew" inputmode="decimal" placeholder="max / √3"></label>
+      </div>
+      <h3>Rasters and dead times (µs)</h3>
+      <div class="form">
+        <label>Gradient raster<input name="grad_raster_time" data-scale="1e6" inputmode="decimal"></label>
+        <label>RF raster<input name="rf_raster_time" data-scale="1e6" inputmode="decimal"></label>
+        <label>ADC raster<input name="adc_raster_time" data-scale="1e6" inputmode="decimal"></label>
+        <label>Block duration raster<input name="block_duration_raster" data-scale="1e6" inputmode="decimal"></label>
+        <label>RF dead time<input name="rf_dead_time" data-scale="1e6" inputmode="decimal"></label>
+        <label>RF ringdown time<input name="rf_ringdown_time" data-scale="1e6" inputmode="decimal"></label>
+        <label>ADC dead time<input name="adc_dead_time" data-scale="1e6" inputmode="decimal"></label>
+      </div>
+      <h3>Forbidden frequency bands (optional)</h3>
+      <div id="bands"></div>
+      <button id="add-band" type="button">Add a band</button>
+      <h3>Peripheral nerve stimulation, chronaxie model (optional)</h3>
+      <div class="form">
+        <label>Chronaxie (µs)<input name="pns_chronaxie" data-scale="1e6" inputmode="decimal"></label>
+        <label>Rheobase (T/m/s; one, or x y z)<input name="pns_rheobase"></label>
+        <label>Alpha (one, or x y z)<input name="pns_alpha"></label>
+        <label>Largest response (fraction of threshold)<input name="pns_limit" inputmode="decimal" placeholder="1"></label>
+      </div>
+      <h3>Other limits</h3>
+      <p>Any further <code style="display:inline;padding:0 4px">key: value</code> line of
+      the limits block, such as a SAFE nerve model's <code style="display:inline;padding:0 4px">pns_x_a1</code>.</p>
+      <textarea name="other" spellcheck="false"></textarea>
+      <h2>Your plugins</h2>
+      <p>Directories on this computer holding your own scanner-sequence plugins and
+      reconstruction plugins, <code style="display:inline;padding:0 4px">&lt;name&gt;.py</code>.
+      MaRGE's sequence list offers your sequences beside pulserver's, and a file of
+      the same name as one of pulserver's takes its place.</p>
+      <div class="form">
+        <label class="wide">Sequence plugins<input name="sequences" placeholder="/path/to/sequences"></label>
+        <label class="wide">Reconstruction plugins<input name="recon" placeholder="/path/to/recon"></label>
+      </div>
+      <p><button id="save" type="submit">Save and restart pulserver</button> <span id="saved"></span></p>
+    </fieldset>
+  </form>
+  </div>
 </div>
 <pre id="status">Loading MaRGE…</pre>
 <script type="module">
@@ -37,11 +124,14 @@ import { loadPyodide } from "./pyodide/pyodide.mjs";
 // The console is pulserver's, at ?console=ws://HOST:PORT. A page served over
 // HTTPS may open an unencrypted WebSocket to this computer only, so it looks for
 // the console here; a page served over HTTP looks on the host that served it.
-const named = new URLSearchParams(location.search).get("console");
+const params = new URLSearchParams(location.search);
+const named = params.get("console");
 const address = named
   || (location.protocol === "https:"
     ? "ws://localhost:8765"
     : `ws://${location.hostname || "127.0.0.1"}:8765`);
+// The helper, pulserver-local.py, which runs pulserver's image on this computer.
+const HELPER = params.get("helper") || "http://127.0.0.1:8764";
 // pulserver's image runs its console on port 8765 of this computer.
 const COMMAND = "docker run -d --restart unless-stopped --name pulserver "
   + "-p 127.0.0.1:8765:8765 ghcr.io/pulserver/pulserver";
@@ -49,8 +139,9 @@ const status = document.getElementById("status");
 const show = (text) => { status.textContent = text; };
 const here = (path) => new URL(path, location.href).href;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const $ = (id) => document.getElementById(id);
 
-window.marge = { ready: false, error: null, waiting: null, log: [] };
+window.marge = { ready: false, error: null, waiting: null, landing: null, log: [] };
 const log = (line) => { window.marge.log.push(line); console.log(line); };
 
 // Opens and closes a connection to the console; false when nothing answers.
@@ -66,44 +157,239 @@ const reach = (url) => new Promise((resolve) => {
   socket.onerror = () => resolve(false);
 });
 
-// A Windows batch file that starts pulserver's image, the newest, in place of
-// any earlier one, and opens this page again.
-const launcher = () => {
-  const page = (location.origin + location.pathname).replaceAll("%", "%%");
-  return [
-    "@echo off",
-    "rem Starts pulserver in Docker for MaRGE's page, then opens the page.",
-    "docker info >nul 2>&1 || (echo Docker is not running: start Docker Desktop, then run this again. & pause & exit /b 1)",
-    "docker rm -f pulserver >nul 2>&1",
-    `${COMMAND.replace("docker run", "docker run --pull always")} || (pause & exit /b 1)`,
-    `start "" "${page}"`,
-    "",
-  ].join("\r\n");
-};
-
-// Waits until the console answers, showing meanwhile how to start it on this
-// computer when the page looks for it here, and the address otherwise.
+// Waits until a console named in the address answers.
 async function untilAnswered() {
   if (await reach(address)) return;
   window.marge.waiting = address;
-  if (named || !/^ws:\/\/(localhost|127\.0\.0\.1):8765$/.test(address)) {
-    show(`Waiting for pulserver's console at ${address}…`);
-  } else {
-    document.getElementById("command").textContent = COMMAND;
-    document.getElementById("copy").onclick = () => navigator.clipboard.writeText(COMMAND);
-    document.getElementById("launcher").href = URL.createObjectURL(
-      new Blob([launcher()], { type: "application/octet-stream" }));
-    document.getElementById("start").hidden = false;
-    show(`Waiting for pulserver at ${address}…`);
-  }
+  show(`Waiting for pulserver's console at ${address}…`);
   while (!(await reach(address))) await pause(2000);
-  document.getElementById("start").hidden = true;
   window.marge.waiting = null;
 }
 
+// The helper's answer to a call, or null when it does not answer.
+async function ask(path, body) {
+  const options = body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  };
+  try {
+    const response = await fetch(HELPER + path, { ...options, signal: AbortSignal.timeout(30000) });
+    return { ok: response.ok, body: await response.json() };
+  } catch (error) {
+    return null;
+  }
+}
+
+// The settings form ------------------------------------------------------------
+
+const form = $("settings");
+const BAND = /^forbidden_band_\d+$/;
+const named_fields = () => [...form.querySelectorAll("input[name], select[name]")]
+  .filter((field) => !["sequences", "recon"].includes(field.name));
+const scaled = (field, value, out) => {
+  const scale = Number(field.dataset.scale || 1);
+  if (value === "" || scale === 1) return value;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return value;
+  return String(out ? number / scale : Number((number * scale).toPrecision(12)));
+};
+
+function addBand(text = "all 0 0") {
+  const [axis, low, high, amplitude] = text.split(/\s+/);
+  const row = document.createElement("div");
+  row.className = "band";
+  row.innerHTML = '<select><option>all</option><option>x</option><option>y</option><option>z</option></select>'
+    + ' <input placeholder="from (Hz)" inputmode="decimal"> <input placeholder="to (Hz)" inputmode="decimal">'
+    + ' <input placeholder="max (mT/m), 0" inputmode="decimal"> <button type="button">Remove</button>';
+  const [select, from, to, most] = row.querySelectorAll("select, input");
+  select.value = axis || "all";
+  from.value = low || ""; to.value = high || ""; most.value = amplitude || "";
+  row.querySelector("button").onclick = () => row.remove();
+  $("bands").append(row);
+}
+$("add-band").onclick = () => addBand("all");
+
+function fill(settings) {
+  const limits = { ...settings.limits };
+  for (const field of named_fields()) {
+    field.value = scaled(field, limits[field.name] ?? (field.tagName === "SELECT" ? field.options[0].value : ""), false);
+    delete limits[field.name];
+  }
+  $("bands").replaceChildren();
+  for (const key of Object.keys(limits).filter((key) => BAND.test(key))) {
+    addBand(limits[key]);
+    delete limits[key];
+  }
+  form.elements.other.value = Object.entries(limits).map(([key, value]) => `${key}: ${value}`).join("\n");
+  form.elements.sequences.value = settings.plugins.sequences || "";
+  form.elements.recon.value = settings.plugins.recon || "";
+}
+
+function read() {
+  const limits = {};
+  for (const line of form.elements.other.value.split("\n")) {
+    const at = line.indexOf(":");
+    if (at > 0) limits[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+  }
+  for (const field of named_fields()) {
+    if (field.value.trim() !== "") limits[field.name] = scaled(field, field.value.trim(), true);
+  }
+  [...$("bands").children].forEach((row, index) => {
+    const [select, from, to, most] = row.querySelectorAll("select, input");
+    const words = [select.value, from.value.trim(), to.value.trim(), most.value.trim()].filter((w) => w !== "");
+    limits[`forbidden_band_${index + 1}`] = words.join(" ");
+  });
+  return { limits, plugins: { sequences: form.elements.sequences.value.trim(), recon: form.elements.recon.value.trim() } };
+}
+
+form.onsubmit = async (event) => {
+  event.preventDefault();
+  $("save").disabled = true;
+  $("saved").className = "";
+  $("saved").textContent = "Saving…";
+  const answer = await ask("/settings", read());
+  $("save").disabled = false;
+  if (answer && answer.ok) {
+    fill(answer.body.settings);
+    $("saved").textContent = "Saved.";
+  } else {
+    $("saved").className = "failed";
+    $("saved").textContent = answer ? answer.body.error : "The helper does not answer.";
+  }
+  refresh();
+};
+
+// The status -------------------------------------------------------------------
+
+const DOT = { ok: "ok", warn: "warn", bad: "bad", off: "" };
+
+function check(what, level, text, ...extra) {
+  const dot = document.createElement("span");
+  dot.className = `dot ${DOT[level]}`;
+  dot.dataset.check = what;
+  dot.dataset.level = level;
+  const name = document.createElement("span");
+  name.className = "what";
+  name.textContent = what;
+  const body = document.createElement("span");
+  body.append(text, ...extra);
+  return [dot, name, body];
+}
+
+function button(label, path) {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.textContent = label;
+  element.dataset.call = path.slice(1);
+  element.onclick = async () => { element.disabled = true; await ask(path, {}); refresh(); };
+  return element;
+}
+
+function link(text, href) {
+  const element = document.createElement("a");
+  element.href = href;
+  element.target = "_blank";
+  element.rel = "noopener";
+  element.textContent = text;
+  return element;
+}
+
+let filled = false;
+
+function render(state, console_answers) {
+  const rows = [];
+  const busy = state && state.task.running;
+  $("helper-missing").hidden = state !== null;
+  if (state === null) {
+    rows.push(check("Helper", "off", "Not running on this computer. "));
+  } else {
+    rows.push(check("Helper", "ok", "Running."));
+    const { docker, image, container, task } = state;
+    if (!docker.installed) {
+      rows.push(check("Docker", "bad", "Not installed. ", link("Install Docker", docker.install),
+        ", start it, and this page goes on."));
+    } else if (!docker.running) {
+      rows.push(check("Docker", "warn", "Installed but not running: start Docker Desktop, or the Docker service."));
+    } else {
+      rows.push(check("Docker", "ok", "Running."));
+      if (!image.present) {
+        rows.push(check("Image", "warn", `${image.name} is not on this computer. `,
+          busy ? "" : button("Install pulserver", "/pull")));
+      } else if (image.current === false) {
+        rows.push(check("Image", "warn", "A newer version of pulserver is published. ",
+          busy ? "" : button("Update", "/pull")));
+      } else {
+        rows.push(check("Image", "ok", image.current ? "Up to date." : "Present; the newest version could not be checked."));
+      }
+      if (image.present) {
+        if (!container.present) {
+          rows.push(check("Container", "warn", "Not created. ", busy ? "" : button("Start pulserver", "/start")));
+        } else if (!container.running) {
+          rows.push(check("Container", "bad", `Not running (${container.status}). `,
+            busy ? "" : button("Restart pulserver", "/start")));
+        } else if (!container.current) {
+          rows.push(check("Container", "warn", "Running with other settings or an older image. ",
+            busy ? "" : button("Restart pulserver", "/start")));
+        } else {
+          rows.push(check("Container", "ok", "Running with these settings."));
+        }
+      }
+    }
+    const lines = [...task.log];
+    if (task.error) lines.push(task.error);
+    if (!(state.container.running) && state.container.log) lines.push(state.container.log);
+    $("task").hidden = lines.length === 0;
+    $("task").textContent = (busy ? `${task.name === "pull" ? "Pulling" : "Starting"} pulserver…\n` : "") + lines.join("\n");
+    $("path").textContent = state.path;
+    $("fields").disabled = false;
+    if (!filled) { fill(state.settings); filled = true; }
+  }
+  $("config").hidden = state === null;
+  if (state === null) { $("task").hidden = true; $("fields").disabled = true; }
+  rows.push(check("Console", console_answers ? "ok" : "off",
+    console_answers ? `Answering at ${address}.` : `Not answering at ${address}.`));
+  $("checks").replaceChildren(...rows.flat());
+  $("open").disabled = !console_answers;
+  $("open-why").textContent = console_answers ? "" : "Once pulserver's console answers.";
+  window.marge.landing = { helper: state !== null, console: console_answers };
+}
+
+let refreshing = null;
+function refresh() {
+  refreshing = refreshing || (async () => {
+    const [answer, console_answers] = await Promise.all([ask("/state"), reach(address)]);
+    render(answer && answer.ok ? answer.body : null, console_answers);
+    refreshing = null;
+  })();
+  return refreshing;
+}
+
+// Shows the landing page until MaRGE is opened, checking every few seconds.
+async function landing() {
+  $("command").textContent = COMMAND;
+  $("copy").onclick = () => navigator.clipboard.writeText(COMMAND);
+  $("helper-download").href = here("pulserver-local.py");
+  $("landing").hidden = false;
+  status.hidden = true;
+  const opened = new Promise((resolve) => { $("open").onclick = resolve; });
+  await refresh();
+  let done = false;
+  opened.then(() => { done = true; });
+  while (!done) {
+    await Promise.race([pause(3000), opened]);
+    if (!done) await refresh();
+  }
+  $("landing").hidden = true;
+  status.hidden = false;
+  window.marge.landing = null;
+}
+
 try {
-  show(`Connecting to ${address}…`);
-  await untilAnswered();
+  if (named) {
+    show(`Connecting to ${address}…`);
+    await untilAnswered();
+  } else {
+    await landing();
+  }
   const manifest = await (await fetch("manifest.json")).json();
   show("Loading Python…");
   const pyodide = await loadPyodide({ indexURL: here("pyodide/"), stdout: log, stderr: log });
@@ -121,6 +407,7 @@ try {
   status.hidden = true;
   window.marge.ready = true;
 } catch (error) {
+  status.hidden = false;
   status.classList.add("failed");
   show(`MaRGE did not start: ${error}`);
   window.marge.error = String(error);
