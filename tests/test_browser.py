@@ -96,7 +96,9 @@ def test_a_landing_page_writes_its_scanner_into_the_launchers_and_keeps_it():
         band.nth(0).fill("500")
         band.nth(1).fill("600")
         tab.fill("input[name=sequences]", "/home/me/sequences")
+        shown = tab.is_visible("#launcher-sh"), tab.is_visible("#launcher-bat")
         shell = _download(tab, "#launcher-sh")
+        tab.click("#other-os")
         batch = _download(tab, "#launcher-bat")
         tab.reload()
         _landing(tab)
@@ -104,6 +106,7 @@ def test_a_landing_page_writes_its_scanner_into_the_launchers_and_keeps_it():
         browser.close()
 
     assert landing["console"] is False
+    assert shown == (True, False)
     name, text = shell
     assert name == "pulserver.sh"
     assert not re.search(r"@[A-Z]+@", text)
@@ -119,6 +122,31 @@ def test_a_landing_page_writes_its_scanner_into_the_launchers_and_keeps_it():
     assert "\r\n>>\"%LIMITS%\" echo B0: 0.55\r\n" in text
     assert "\n" not in text.replace("\r\n", "")
     assert kept == "0.55"
+
+
+def test_a_landing_page_asks_the_console_whether_a_newer_image_is_published():
+    sync_api = pytest.importorskip("playwright.sync_api")
+    websockets = pytest.importorskip("websockets.sync.server")
+
+    def console(connection):
+        for message in connection:
+            request = json.loads(message)
+            connection.send(json.dumps({"id": request["id"], "image": "sha256:old", "latest": "sha256:new"}))
+
+    with websockets.serve(console, "127.0.0.1", 8765) as server:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
+            tab = browser.new_page()
+            tab.goto(f"{WEB}/index.html")
+            tab.wait_for_function("window.marge.landing && window.marge.landing.version", timeout=60_000)
+            level = tab.get_attribute("[data-check=Version]", "data-level")
+            text = tab.inner_text("#checks")
+            browser.close()
+        server.shutdown()
+
+    assert level == "warn"
+    assert "run the launcher again" in text
 
 
 def _console_plugins():

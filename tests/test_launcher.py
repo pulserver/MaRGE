@@ -32,7 +32,10 @@ if not state["daemon"]:
 if argv[0] == "info":
     done()
 if argv[:2] == ["image", "inspect"]:
-    done(0, state["local"] + "\n") if state["local"] else done(1)
+    if not state["local"]:
+        done(1)
+    digests = "RepoDigests" in argv[argv.index("--format") + 1]
+    done(0, ("ghcr.io/pulserver/pulserver@" if digests else "") + state["local"] + "\n")
 if argv[0] == "pull":
     if not state["published"]:
         done(1)
@@ -96,6 +99,7 @@ def test_an_absent_image_is_installed_and_started_with_the_page_s_limits(tmp_pat
     run = calls[-1]
     assert run[0] == "run" and run[-1] == IMAGE
     assert f"{home / 'limits.txt'}:/console/limits.txt:ro" in run
+    assert f"PULSERVER_IMAGE={IMAGE}@sha256:new" in run
     limits = (home / "limits.txt").read_text().splitlines()
     assert [line.strip() for line in limits] == ["[Limits]", *LIMITS, "[Limits End]"]
 

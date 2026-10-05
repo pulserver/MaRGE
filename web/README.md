@@ -14,7 +14,9 @@ The page is served at <https://pulserver.github.io/MaRGE/>. pulserver runs
 beside it in Docker, on the same computer, started by a launcher the page
 offers for download with the scanner settings below written into it:
 `pulserver.bat` on Windows, run by double-clicking it, and `pulserver.sh` on
-macOS and Linux, run with `sh pulserver.sh`. Neither needs anything but
+macOS and Linux, run with `sh pulserver.sh`, since neither system runs a
+downloaded script by double-clicking it. The page shows the launcher of the
+computer it is opened on, and the other on request. Neither needs anything but
 Docker.
 
 The launcher stops with a message when Docker is not installed (naming its
@@ -24,7 +26,10 @@ updated, or is up to date, comparing the local image with the published one
 through `docker pull`; when the registry does not answer it starts the image
 already on the computer. It (re)creates the container with the settings and
 opens the page, whose landing view shows whether the console answers on port
-8765 and unlocks *Open MaRGE* once it does. Docker starts the container again
+8765 and unlocks *Open MaRGE* once it does. The launcher names the image's
+digest to the container, and on opening the page asks the console's `version`
+call whether the registry publishes a newer one; the registry does not answer
+pages, so the console asks it. Docker starts the container again
 with itself, so the launcher is needed again only to change the settings or to
 update pulserver. `docker rm -f pulserver` removes it. Browsers that restrict
 public pages' access to local services ask the viewer's permission first.

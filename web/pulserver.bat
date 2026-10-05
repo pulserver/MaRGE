@@ -48,7 +48,9 @@ if "%BEFORE%"=="" (
     echo pulserver was outdated and is updated.
 )
 
-set MOUNTS=-v "%LIMITS%:/console/limits.txt:ro"
+set "DIGEST="
+for /f "delims=" %%i in ('docker image inspect --format "{{index .RepoDigests 0}}" %IMAGE% 2^>nul') do set "DIGEST=%%i"
+set MOUNTS=-e "PULSERVER_IMAGE=%DIGEST%" -v "%LIMITS%:/console/limits.txt:ro"
 if not "%SEQUENCES%"=="" set MOUNTS=%MOUNTS% -v "%SEQUENCES%:/console/user/plugins:ro"
 if not "%RECON%"=="" set MOUNTS=%MOUNTS% -v "%RECON%:/console/user/recon:ro"
 call docker rm -f %NAME% >nul 2>&1

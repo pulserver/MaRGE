@@ -57,15 +57,17 @@
   image when it is not on this computer, updates it when a newer version is
   published, and starts it with the scanner below, then opens this page. Run it
   again after changing the scanner, or to update pulserver.</p>
-  <p>
-    <button id="launcher-bat" type="button" data-os="windows">Download the launcher for Windows</button>
-    double-click <span class="file">pulserver.bat</span>.
-  </p>
-  <p>
-    <button id="launcher-sh" type="button" data-os="unix">Download the launcher for macOS and Linux</button>
-    run it from a terminal in the download folder:
-  </p>
-  <code>sh pulserver.sh</code>
+  <div class="launcher" data-os="windows">
+    <p><button id="launcher-bat" class="primary-os" type="button">Download the launcher for Windows</button>
+    then double-click <span class="file">pulserver.bat</span>.</p>
+  </div>
+  <div class="launcher" data-os="unix">
+    <p><button id="launcher-sh" class="primary-os" type="button">Download the launcher for macOS and Linux</button>
+    then run it from a terminal in the download folder; macOS and Linux do not run a
+    downloaded script by double-clicking it:</p>
+    <code>sh pulserver.sh</code>
+  </div>
+  <p><a href="#" id="other-os">Launcher for another system</a></p>
 
   <h2>Scanner</h2>
   <p>pulserver designs every sequence under these limits, which MaRGE's console does
@@ -297,19 +299,56 @@ function check(what, level, text, ...extra) {
   return [dot, name, body];
 }
 
+// The console's answer to one call, or null when it gives none.
+const askConsole = (call) => new Promise((resolve) => {
+  let socket;
+  try {
+    socket = new WebSocket(address);
+  } catch (error) {
+    resolve(null);
+    return;
+  }
+  const timer = setTimeout(() => { socket.close(); resolve(null); }, 20000);
+  socket.onopen = () => socket.send(JSON.stringify({ id: 1, call }));
+  socket.onmessage = (event) => { clearTimeout(timer); socket.close(); resolve(JSON.parse(event.data)); };
+  socket.onerror = () => { clearTimeout(timer); resolve(null); };
+});
+
+// The running image against the published one, asked once each time the console starts answering.
+let version = null;
+
+function versionRow() {
+  if (version === null) return check("Version", "off", "Checking for a newer version…");
+  if (!version.image) {
+    return check("Version", "off", "Not known: pulserver was not started by the launcher. Run the launcher to check and update.");
+  }
+  if (!version.latest) return check("Version", "off", "The newest version could not be checked.");
+  if (version.image === version.latest) return check("Version", "ok", "Up to date.");
+  return check("Version", "warn", "A newer version of pulserver is published: run the launcher again to update it.");
+}
+
 function render(console_answers) {
-  $("checks").replaceChildren(...check("Console", console_answers ? "ok" : "off",
+  const rows = [check("Console", console_answers ? "ok" : "off",
     console_answers ? `pulserver is answering at ${address}.`
-      : `pulserver is not answering at ${address}: start it with the launcher below.`));
+      : `pulserver is not answering at ${address}: start it with the launcher below.`)];
+  if (console_answers) rows.push(versionRow());
+  $("checks").replaceChildren(...rows.flat());
   $("open").disabled = !console_answers;
   $("open-why").textContent = console_answers ? "" : "Once pulserver answers.";
-  window.marge.landing = { console: console_answers };
+  window.marge.landing = { console: console_answers, version };
 }
 
 let refreshing = null;
 function refresh() {
   refreshing = refreshing || (async () => {
-    render(await reach(address));
+    const answers = await reach(address);
+    if (!answers) version = null;
+    render(answers);
+    if (answers && version === null) {
+      const answer = await askConsole("version");
+      version = answer && !answer.error ? answer : { image: null, latest: null };
+      render(answers);
+    }
     refreshing = null;
   })();
   return refreshing;
@@ -320,8 +359,15 @@ async function landing() {
   fill(stored());
   $("launcher-bat").onclick = () => launcher("pulserver.bat");
   $("launcher-sh").onclick = () => launcher("pulserver.sh");
-  const windows = /Win/.test(navigator.platform || navigator.userAgent);
-  $(windows ? "launcher-bat" : "launcher-sh").classList.add("primary-os");
+  // Only this computer's launcher is shown, until the other is asked for.
+  const system = /Win/.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent)
+    ? "windows" : "unix";
+  for (const block of document.querySelectorAll(".launcher")) block.hidden = block.dataset.os !== system;
+  $("other-os").onclick = (event) => {
+    event.preventDefault();
+    for (const block of document.querySelectorAll(".launcher")) block.hidden = false;
+    $("other-os").hidden = true;
+  };
   $("landing").hidden = false;
   status.hidden = true;
   const opened = new Promise((resolve) => { $("open").onclick = resolve; });
