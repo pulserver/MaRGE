@@ -3,9 +3,10 @@
 The build is the PyQt6 build of Pyodide, the packages of the Pyodide release
 it was built from that MaRGE imports, the pure-Python wheels of MaRGE's other
 dependencies, and MaRGE itself. Serve ``web/dist`` over HTTP and open
-``index.html``, whose landing page runs pulserver on this computer through
-``pulserver-local.py`` beside it, or ``index.html?console=ws://HOST:PORT`` for
-a console already running elsewhere.
+``index.html``, whose landing page offers ``pulserver.sh`` and
+``pulserver.bat`` beside it, filled with its scanner settings, to run pulserver
+on this computer, or ``index.html?console=ws://HOST:PORT`` for a console
+already running elsewhere.
 
 Usage: ``python web/build.py [--pyodide DIR]``, where ``DIR`` holds an
 unpacked Pyodide release to take the packages from instead of its CDN.
@@ -167,7 +168,8 @@ def main(argv: list[str] | None = None) -> None:
     }
     (args.dist / "manifest.json").write_text(json.dumps(manifest, indent=1))
     shutil.copy2(HERE / "index.html", args.dist / "index.html")
-    shutil.copy2(HERE / "pulserver_local.py", args.dist / "pulserver-local.py")
+    for launcher in ("pulserver.sh", "pulserver.bat"):
+        shutil.copy2(HERE / launcher, args.dist / launcher)
     size = sum(path.stat().st_size for path in args.dist.rglob("*") if path.is_file())
     counts = f"{len(manifest['packages'])} packages, {len(manifest['wheels'])} wheels"
     print(f"{args.dist}: {counts}, {size / 1e6:.0f} MB")
