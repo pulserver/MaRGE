@@ -50,7 +50,8 @@ else
     echo "pulserver was outdated and is updated."
 fi
 
-set -- -v "$HOME_DIR/limits.txt:/console/limits.txt:ro"
+digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE" 2>/dev/null)
+set -- -e "PULSERVER_IMAGE=$digest" -v "$HOME_DIR/limits.txt:/console/limits.txt:ro"
 [ -n "$SEQUENCES" ] && set -- "$@" -v "$SEQUENCES:/console/user/plugins:ro"
 [ -n "$RECON" ] && set -- "$@" -v "$RECON:/console/user/recon:ro"
 docker rm -f "$NAME" >/dev/null 2>&1
