@@ -11,82 +11,48 @@ opens on its three-plane localizer, drawn from the brain's ground truth.
 ## Open it
 
 The page is served at <https://pulserver.github.io/MaRGE/>. pulserver runs
-beside it in Docker, on the same computer, kept there by a helper the page
-offers for download, `pulserver-local.py`, which needs Python 3.8 or newer
-and nothing else:
+beside it in Docker, on the same computer, started by a launcher the page
+offers for download with the scanner settings below written into it:
+`pulserver.bat` on Windows, run by double-clicking it, and `pulserver.sh` on
+macOS and Linux, run with `sh pulserver.sh`. Neither needs anything but
+Docker.
 
-```bash
-python pulserver-local.py
-```
-
-The helper answers the page on `http://127.0.0.1:8764` and opens it. The
-page's landing view then shows, each in green once in order, whether Docker is
-installed (with a link to its installation when it is not) and running,
-whether pulserver's image `ghcr.io/pulserver/pulserver` is on this computer
-and the newest published (an *Install* or *Update* button pulls it), and
-whether its container runs with the settings below (*Start* or *Restart*
-creates it afresh). *Open MaRGE* loads MaRGE once the console answers on port
-8765. Docker starts the container again with itself, so on later visits the
-page can be opened without the helper, which is needed only to change
-something. Without the helper, the page shows the command that starts the
-image with its own scanner:
-
-```bash
-docker run -d --restart unless-stopped --name pulserver -p 127.0.0.1:8765:8765 ghcr.io/pulserver/pulserver
-```
+The launcher stops with a message when Docker is not installed (naming its
+installation page) or not running. It then reports whether pulserver's image
+`ghcr.io/pulserver/pulserver` was absent and is downloaded, was outdated and is
+updated, or is up to date, comparing the local image with the published one
+through `docker pull`; when the registry does not answer it starts the image
+already on the computer. It (re)creates the container with the settings and
+opens the page, whose landing view shows whether the console answers on port
+8765 and unlocks *Open MaRGE* once it does. Docker starts the container again
+with itself, so the launcher is needed again only to change the settings or to
+update pulserver. `docker rm -f pulserver` removes it. Browsers that restrict
+public pages' access to local services ask the viewer's permission first.
 
 The image carries pulserver with BrainWeb's normal brain, the coils' field
 maps solved in it by [mariepy](https://github.com/pulserver/mariepy), and
-bartorch, and reconstructs each scan in its own process. `docker rm -f
-pulserver` removes it. Browsers that restrict public pages' access to local
-services ask the viewer's permission first.
+bartorch, and reconstructs each scan in its own process.
 
 ### Scanner settings and plugins
 
-The landing view also edits what MaRGE's console does not set, which the
-helper keeps in `~/.pulserver/scanner.txt` (`PULSERVER_HOME` names another
-directory), written with the image's scanner on its first run and editable by
-hand as well:
+The landing view edits what MaRGE's console does not set and keeps it in the
+browser, starting from the image's scanner: B0, the gradient and slew limits
+with their units, the design limits per logical axis (the scanner's divided by
+√3 when left out), the rasters and dead times, forbidden frequency bands (an
+axis `x`, `y`, `z` or `all`, the lowest and highest frequency in Hz, and
+optionally the largest amplitude in mT/m), the chronaxie nerve model
+(chronaxie, rheobase, alpha and the largest response), and any further line of
+the limits block, such as a SAFE nerve model's coefficients. The launcher
+writes them as the limits block of `pulserver console`, in seconds and the
+units named, to `~/.pulserver/limits.txt` (`%USERPROFILE%\.pulserver` on
+Windows; `PULSERVER_HOME` names another directory), mounted over the image's
+own.
 
-```
-[Limits]
-B0: 3.0
-max_grad: 40.0
-grad_unit: mT/m
-max_slew: 150.0
-slew_unit: T/m/s
-grad_raster_time: 2e-05
-rf_raster_time: 2e-06
-adc_raster_time: 2e-06
-block_duration_raster: 2e-05
-rf_dead_time: 0.0
-rf_ringdown_time: 0.0
-adc_dead_time: 0.0
-forbidden_band_1: all 500 600
-pns_chronaxie: 0.00036
-pns_rheobase: 20
-[Limits End]
-[Plugins]
-sequences: /home/me/sequences
-recon: /home/me/recon
-[Plugins End]
-```
-
-The `[Limits]` block is the limits block of `pulserver console`: the
-`pypulseqpp.Opts` arguments, in seconds and the units named, with the field in
-T; optional forbidden bands (an axis `x`, `y`, `z` or `all`, the lowest and
-highest frequency in Hz, and optionally the largest amplitude in mT/m) and
-peripheral nerve stimulation coefficients, a chronaxie model or a SAFE one;
-and the design limits per logical axis, `design_max_grad` and
-`design_max_slew`, which are the scanner's divided by √3 when left out, as in
-the image. Saving restarts the container with them, since the console reads
-its limits as it starts.
-
-The `[Plugins]` block names a directory of the user's own scanner-sequence
-plugins and one of reconstruction plugins, each `<name>.py`. Each is mounted
-read-only where the image's console searches before its own plugins, so
-MaRGE's sequence list offers the user's sequences beside pulserver's, and a
-file named as one of pulserver's takes its place.
+The two plugin directories name the user's own scanner-sequence plugins and
+reconstruction plugins, each `<name>.py`. Each is mounted read-only where the
+image's console searches before its own plugins, so MaRGE's sequence list
+offers the user's sequences beside pulserver's, and a file named as one of
+pulserver's takes its place.
 
 ## Scan
 
@@ -163,11 +129,11 @@ reconstruction proxy.
 
 ## Test
 
-`tests/test_pulserver_local.py` runs the helper against a stand-in for
-Docker. `tests/test_browser.py` drives the page in Chromium from the exam to a
+`tests/test_launcher.py` runs the launchers against a stand-in for Docker,
+the shell one on Linux and the batch one on Windows. `tests/test_browser.py` drives the page in Chromium from the exam to a
 reconstructed scan and on to another exam, given `MARGE_WEB` and
 `MARGE_PULSERVER`, checks that a page with no console answering waits for
-one, and drives the landing view with and without the helper; the Browser workflow runs it against pulserver's
+one, and checks that the landing view writes its scanner into both launchers; the Browser workflow runs it against pulserver's
 image built from its main branch.
 
 ## Licences

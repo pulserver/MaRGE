@@ -43,7 +43,7 @@ jobs:
         env:
           MARGE_WEB: http://127.0.0.1:8000
           MARGE_PULSERVER: ws://127.0.0.1:8766
-        run: python -m pytest tests/test_pulserver_local.py tests/test_browser.py -v
+        run: python -m pytest tests/test_launcher.py tests/test_browser.py -v
       - name: Show the services' logs
         if: always()
         run: |
@@ -53,6 +53,17 @@ jobs:
         if: github.event_name == 'push'
         with:
           path: web/dist
+
+  # The batch launcher, which only Windows runs.
+  launcher-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - run: python -m pytest tests/test_launcher.py -v -p no:cacheprovider
 
   pages:
     if: github.event_name == 'push'

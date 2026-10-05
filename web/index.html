@@ -31,7 +31,8 @@
   .band { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   .band input { width: 110px; }
   .wide { grid-column: 1 / -1; }
-  #saved.failed { color: #ff8a80; }
+  #landing .primary-os { background: #2e7d32; border-color: #43a047; font-weight: 600; }
+  .file { font-family: ui-monospace, monospace; }
 </style>
 </head>
 <body>
@@ -39,36 +40,39 @@
 <div id="landing" hidden>
   <h1>MaRGE on pulserver's virtual scanner</h1>
   <p>This page is MaRGE. pulserver, which designs, simulates and reconstructs each
-  scan, runs in Docker on this computer, and a small helper keeps it installed,
-  up to date and configured with the scanner below.</p>
+  scan, runs in Docker on this computer, started by a launcher downloaded from this
+  page with the scanner settings below.</p>
 
   <h2>Status</h2>
   <div class="checks" id="checks"></div>
-  <div id="helper-missing" hidden>
-    <p>The helper is a Python script that needs nothing but Python 3.8 or newer.
-    Download it and run it; it opens this page again and stays in its window while
-    the page is in use.</p>
-    <a id="helper-download" class="button" download="pulserver-local.py">Download the helper</a>
-    <code id="helper-command">python pulserver-local.py</code>
-    <p>Or, without the helper, start pulserver with Docker's default scanner:</p>
-    <code id="command"></code>
-    <button id="copy" type="button">Copy the command</button>
-  </div>
-  <pre id="task" hidden></pre>
   <p>
     <button id="open" class="primary" type="button" disabled>Open MaRGE</button>
     <span id="open-why"></span>
   </p>
   <p>When the browser asks whether this page may connect to devices on the local
-  network, allow it: pulserver and the helper are such devices.</p>
+  network, allow it: pulserver is such a device.</p>
 
-  <div id="config" hidden>
+  <h2>Start pulserver</h2>
+  <p>The launcher checks that Docker is installed and running, downloads pulserver's
+  image when it is not on this computer, updates it when a newer version is
+  published, and starts it with the scanner below, then opens this page. Run it
+  again after changing the scanner, or to update pulserver.</p>
+  <p>
+    <button id="launcher-bat" type="button" data-os="windows">Download the launcher for Windows</button>
+    double-click <span class="file">pulserver.bat</span>.
+  </p>
+  <p>
+    <button id="launcher-sh" type="button" data-os="unix">Download the launcher for macOS and Linux</button>
+    run it from a terminal in the download folder:
+  </p>
+  <code>sh pulserver.sh</code>
+
   <h2>Scanner</h2>
-  <p>pulserver designs every sequence under these limits, which MaRGE's console
-  does not set. They are kept in <span id="path">a settings file</span>; saving
-  restarts pulserver with them.</p>
+  <p>pulserver designs every sequence under these limits, which MaRGE's console does
+  not set. This page keeps them in the browser and writes them into the launcher.
+  <button id="reset" type="button">Restore the defaults</button></p>
   <form id="settings">
-    <fieldset id="fields" disabled style="border: 0; padding: 0; margin: 0;">
+    <fieldset id="fields" style="border: 0; padding: 0; margin: 0;">
       <h3>Field and gradients</h3>
       <div class="form">
         <label>B0 (T)<input name="B0" inputmode="decimal"></label>
@@ -112,10 +116,8 @@
         <label class="wide">Sequence plugins<input name="sequences" placeholder="/path/to/sequences"></label>
         <label class="wide">Reconstruction plugins<input name="recon" placeholder="/path/to/recon"></label>
       </div>
-      <p><button id="save" type="submit">Save and restart pulserver</button> <span id="saved"></span></p>
     </fieldset>
   </form>
-  </div>
 </div>
 <pre id="status">Loading MaRGE…</pre>
 <script type="module">
@@ -130,11 +132,17 @@ const address = named
   || (location.protocol === "https:"
     ? "ws://localhost:8765"
     : `ws://${location.hostname || "127.0.0.1"}:8765`);
-// The helper, pulserver-local.py, which runs pulserver's image on this computer.
-const HELPER = params.get("helper") || "http://127.0.0.1:8764";
-// pulserver's image runs its console on port 8765 of this computer.
-const COMMAND = "docker run -d --restart unless-stopped --name pulserver "
-  + "-p 127.0.0.1:8765:8765 ghcr.io/pulserver/pulserver";
+// The scanner of a new page: pulserver's image's own, with the rasters and dead
+// times of pypulseqpp.Opts written out.
+const DEFAULTS = {
+  limits: {
+    B0: "3.0", max_grad: "40.0", grad_unit: "mT/m", max_slew: "150.0", slew_unit: "T/m/s",
+    grad_raster_time: "2e-05", rf_raster_time: "2e-06", adc_raster_time: "2e-06",
+    block_duration_raster: "2e-05", rf_dead_time: "0.0", rf_ringdown_time: "0.0", adc_dead_time: "0.0",
+  },
+  plugins: { sequences: "", recon: "" },
+};
+const STORED = "pulserver.scanner";
 const status = document.getElementById("status");
 const show = (text) => { status.textContent = text; };
 const here = (path) => new URL(path, location.href).href;
@@ -164,19 +172,6 @@ async function untilAnswered() {
   show(`Waiting for pulserver's console at ${address}…`);
   while (!(await reach(address))) await pause(2000);
   window.marge.waiting = null;
-}
-
-// The helper's answer to a call, or null when it does not answer.
-async function ask(path, body) {
-  const options = body === undefined ? {} : {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-  };
-  try {
-    const response = await fetch(HELPER + path, { ...options, signal: AbortSignal.timeout(30000) });
-    return { ok: response.ok, body: await response.json() };
-  } catch (error) {
-    return null;
-  }
 }
 
 // The settings form ------------------------------------------------------------
@@ -241,22 +236,49 @@ function read() {
   return { limits, plugins: { sequences: form.elements.sequences.value.trim(), recon: form.elements.recon.value.trim() } };
 }
 
-form.onsubmit = async (event) => {
-  event.preventDefault();
-  $("save").disabled = true;
-  $("saved").className = "";
-  $("saved").textContent = "Saving…";
-  const answer = await ask("/settings", read());
-  $("save").disabled = false;
-  if (answer && answer.ok) {
-    fill(answer.body.settings);
-    $("saved").textContent = "Saved.";
+// Keeps the settings in the browser; storage may be refused, in which case
+// they last as long as the tab.
+function store() {
+  try { localStorage.setItem(STORED, JSON.stringify(read())); } catch (error) { /* kept in the form */ }
+}
+function stored() {
+  try { return JSON.parse(localStorage.getItem(STORED)) || DEFAULTS; } catch (error) { return DEFAULTS; }
+}
+form.oninput = store;
+form.onsubmit = (event) => event.preventDefault();
+$("bands").addEventListener("click", () => setTimeout(store));
+$("reset").onclick = () => { fill(DEFAULTS); store(); };
+
+// The launcher ----------------------------------------------------------------
+
+// pulserver.sh or pulserver.bat, served beside the page, with the settings and
+// this page's address in place of its @NAME@ markers.
+async function launcher(file) {
+  const settings = read();
+  const lines = Object.entries(settings.limits).map(([key, value]) => `${key}: ${value}`);
+  const page = location.origin + location.pathname;
+  let text = await (await fetch(here(file))).text();
+  if (file.endsWith(".sh")) {
+    const quoted = (value) => value.replaceAll("'", "'\\''");
+    text = text.replace("@LIMITS@", () => lines.join("\n"))
+      .replace("@PAGE@", () => quoted(page))
+      .replace("@SEQUENCES@", () => quoted(settings.plugins.sequences))
+      .replace("@RECON@", () => quoted(settings.plugins.recon));
   } else {
-    $("saved").className = "failed";
-    $("saved").textContent = answer ? answer.body.error : "The helper does not answer.";
+    const escaped = (value) => value.replaceAll("%", "%%");
+    const echoed = (line) => escaped(line).replace(/[\^&<>|()]/g, "^$&");
+    text = text.replace("@LIMITS@", () => lines.map((line) => `>>"%LIMITS%" echo ${echoed(line)}`).join("\r\n"))
+      .replace("@PAGE@", () => escaped(page))
+      .replace("@SEQUENCES@", () => escaped(settings.plugins.sequences))
+      .replace("@RECON@", () => escaped(settings.plugins.recon))
+      .replace(/\r?\n/g, "\r\n");
   }
-  refresh();
-};
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([text], { type: "application/octet-stream" }));
+  link.download = file;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+}
 
 // The status -------------------------------------------------------------------
 
@@ -275,89 +297,19 @@ function check(what, level, text, ...extra) {
   return [dot, name, body];
 }
 
-function button(label, path) {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.textContent = label;
-  element.dataset.call = path.slice(1);
-  element.onclick = async () => { element.disabled = true; await ask(path, {}); refresh(); };
-  return element;
-}
-
-function link(text, href) {
-  const element = document.createElement("a");
-  element.href = href;
-  element.target = "_blank";
-  element.rel = "noopener";
-  element.textContent = text;
-  return element;
-}
-
-let filled = false;
-
-function render(state, console_answers) {
-  const rows = [];
-  const busy = state && state.task.running;
-  $("helper-missing").hidden = state !== null;
-  if (state === null) {
-    rows.push(check("Helper", "off", "Not running on this computer. "));
-  } else {
-    rows.push(check("Helper", "ok", "Running."));
-    const { docker, image, container, task } = state;
-    if (!docker.installed) {
-      rows.push(check("Docker", "bad", "Not installed. ", link("Install Docker", docker.install),
-        ", start it, and this page goes on."));
-    } else if (!docker.running) {
-      rows.push(check("Docker", "warn", "Installed but not running: start Docker Desktop, or the Docker service."));
-    } else {
-      rows.push(check("Docker", "ok", "Running."));
-      if (!image.present) {
-        rows.push(check("Image", "warn", `${image.name} is not on this computer. `,
-          busy ? "" : button("Install pulserver", "/pull")));
-      } else if (image.current === false) {
-        rows.push(check("Image", "warn", "A newer version of pulserver is published. ",
-          busy ? "" : button("Update", "/pull")));
-      } else {
-        rows.push(check("Image", "ok", image.current ? "Up to date." : "Present; the newest version could not be checked."));
-      }
-      if (image.present) {
-        if (!container.present) {
-          rows.push(check("Container", "warn", "Not created. ", busy ? "" : button("Start pulserver", "/start")));
-        } else if (!container.running) {
-          rows.push(check("Container", "bad", `Not running (${container.status}). `,
-            busy ? "" : button("Restart pulserver", "/start")));
-        } else if (!container.current) {
-          rows.push(check("Container", "warn", "Running with other settings or an older image. ",
-            busy ? "" : button("Restart pulserver", "/start")));
-        } else {
-          rows.push(check("Container", "ok", "Running with these settings."));
-        }
-      }
-    }
-    const lines = [...task.log];
-    if (task.error) lines.push(task.error);
-    if (!(state.container.running) && state.container.log) lines.push(state.container.log);
-    $("task").hidden = lines.length === 0;
-    $("task").textContent = (busy ? `${task.name === "pull" ? "Pulling" : "Starting"} pulserver…\n` : "") + lines.join("\n");
-    $("path").textContent = state.path;
-    $("fields").disabled = false;
-    if (!filled) { fill(state.settings); filled = true; }
-  }
-  $("config").hidden = state === null;
-  if (state === null) { $("task").hidden = true; $("fields").disabled = true; }
-  rows.push(check("Console", console_answers ? "ok" : "off",
-    console_answers ? `Answering at ${address}.` : `Not answering at ${address}.`));
-  $("checks").replaceChildren(...rows.flat());
+function render(console_answers) {
+  $("checks").replaceChildren(...check("Console", console_answers ? "ok" : "off",
+    console_answers ? `pulserver is answering at ${address}.`
+      : `pulserver is not answering at ${address}: start it with the launcher below.`));
   $("open").disabled = !console_answers;
-  $("open-why").textContent = console_answers ? "" : "Once pulserver's console answers.";
-  window.marge.landing = { helper: state !== null, console: console_answers };
+  $("open-why").textContent = console_answers ? "" : "Once pulserver answers.";
+  window.marge.landing = { console: console_answers };
 }
 
 let refreshing = null;
 function refresh() {
   refreshing = refreshing || (async () => {
-    const [answer, console_answers] = await Promise.all([ask("/state"), reach(address)]);
-    render(answer && answer.ok ? answer.body : null, console_answers);
+    render(await reach(address));
     refreshing = null;
   })();
   return refreshing;
@@ -365,9 +317,11 @@ function refresh() {
 
 // Shows the landing page until MaRGE is opened, checking every few seconds.
 async function landing() {
-  $("command").textContent = COMMAND;
-  $("copy").onclick = () => navigator.clipboard.writeText(COMMAND);
-  $("helper-download").href = here("pulserver-local.py");
+  fill(stored());
+  $("launcher-bat").onclick = () => launcher("pulserver.bat");
+  $("launcher-sh").onclick = () => launcher("pulserver.sh");
+  const windows = /Win/.test(navigator.platform || navigator.userAgent);
+  $(windows ? "launcher-bat" : "launcher-sh").classList.add("primary-os");
   $("landing").hidden = false;
   status.hidden = true;
   const opened = new Promise((resolve) => { $("open").onclick = resolve; });
