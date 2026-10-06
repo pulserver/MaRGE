@@ -5,6 +5,7 @@
 """
 
 import datetime
+import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QStatusBar, QWidget, QHBoxLayout, QVBoxLayout, QTableWidget,
     QSizePolicy
@@ -158,3 +159,10 @@ class MainWindow(QMainWindow):
         # Add printer
         self.printer = Printer(main=self)
 
+
+    def show(self):
+        """Show the window; in a browser tab, filling the tab, so that the history below the figures is in view."""
+        if sys.platform == "emscripten":
+            self.showMaximized()
+        else:
+            super().show()
