@@ -32,8 +32,10 @@ import numpy as np
 #: WebSocket address of ``pulserver console``; the console mode is off without it.
 GATEWAY = os.environ.get("MARGE_PULSERVER", "")
 
-PROTOCOL_BEGIN = "[NimPulseqGUI Protocol]"
-PROTOCOL_END = "[NimPulseqGUI Protocol End]"
+PROTOCOL_BEGIN = "[Protocol]"
+PROTOCOL_END = "[Protocol End]"
+#: The delimiters of a console that predates pulserver's ``[Protocol]`` block, also read.
+_FORMER = ("[NimPulseqGUI Protocol]", "[NimPulseqGUI Protocol End]")
 FOV_OFFSET = ("fov_offset_x", "fov_offset_y", "fov_offset_z")
 FOV_ROTATION = tuple(f"fov_rotation_{i}{j}" for i in (1, 2, 3) for j in (1, 2, 3))
 PRESCRIPTION = FOV_OFFSET + FOV_ROTATION
@@ -79,10 +81,10 @@ def parse_listing(reply: str) -> dict[str, dict[str, Any]]:
     inside = False
     for line in reply.splitlines():
         text = line.strip()
-        if text == PROTOCOL_BEGIN:
+        if text in (PROTOCOL_BEGIN, _FORMER[0]):
             inside = True
             continue
-        if text == PROTOCOL_END:
+        if text in (PROTOCOL_END, _FORMER[1]):
             break
         if not inside or text.startswith("#") or ": " not in text:
             continue
@@ -150,7 +152,9 @@ def format_values(
         if entry["kind"] not in _EDITABLE or name in PRESCRIPTION:
             continue
         if entry["kind"] == "bool":
-            text = "true" if value else "false"
+            # MaRGE's parameter tabs hand an edited boolean back as its text.
+            on = value.strip().lower() == "true" if isinstance(value, str) else bool(value)
+            text = "true" if on else "false"
         elif entry["kind"] == "stringlist":
             text = str(entry["options"].index(value))
         elif entry["kind"] == "int":
@@ -183,7 +187,10 @@ def prescription(
         cross = np.array([[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]])
         theta = math.radians(angle_deg)
         turn = np.eye(3) + math.sin(theta) * cross + (1 - math.cos(theta)) * cross @ cross
-    rotation = turn @ ORIENTATIONS[orientation]
+    name = orientation.strip().lower()
+    if name not in ORIENTATIONS:
+        raise ValueError(f"orientation is one of {', '.join(ORIENTATIONS)}, not {orientation!r}")
+    rotation = turn @ ORIENTATIONS[name]
     return rotation, rotation.T @ np.asarray(dfov_mm, dtype=float)
 
 

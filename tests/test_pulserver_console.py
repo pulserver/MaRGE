@@ -18,7 +18,7 @@ from marge.seq import pulserver_console as console
 #: pulserver's listing of its gre2d test plugin, with a boolean, a string list
 #: and a description added.
 LISTING = """PROTOCOL
-[NimPulseqGUI Protocol]
+[Protocol]
 TE: int|dropdown|8000|1000|80000|10|us|-2|5000|8000
 bandwidth: float|typein|250000.0|1000.0|1000000.0|1.0|Hz
 nx: int|typein|128|32|512|2|
@@ -29,7 +29,7 @@ readout: stringlist|1|cartesian|radial
 note: description|two\\nlines
 fov_offset_x: float|off|0.0|-1000.0|1000.0|0.1|mm
 fov_rotation_11: float|off|1.0|-1.0|1.0|1e-06|
-[NimPulseqGUI Protocol End]
+[Protocol End]
 """
 
 
@@ -54,6 +54,32 @@ def test_a_listing_reads_as_the_interpreter_reads_it():
         "options": ["cartesian", "radial"],
     }
     assert entries["note"]["value"] == "two\nlines"
+
+
+def test_a_boolean_edited_as_text_in_marges_tabs_travels_as_its_value():
+    entries = console.parse_listing(LISTING)
+    rotation = console.ORIENTATIONS["axial"]
+
+    for text, sent in (("False", "false"), ("True", "true")):
+        block = console.format_values({"fatsat": text}, entries, rotation, (0.0, 0.0, 0.0))
+        assert block.splitlines()[1] == f"fatsat: {sent}"
+
+
+def test_an_orientation_typed_in_marges_image_tab_is_read_whatever_its_case():
+    rotation, _ = console.prescription(" Coronal", 0.0, (1.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+
+    np.testing.assert_array_equal(rotation, console.ORIENTATIONS["coronal"])
+    with pytest.raises(ValueError, match="axial, coronal, sagittal"):
+        console.prescription("oblique", 0.0, (1.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+
+
+def test_a_listing_of_an_older_console_reads_the_same():
+    former = LISTING.replace("[Protocol]", "[NimPulseqGUI Protocol]").replace(
+        "[Protocol End]", "[NimPulseqGUI Protocol End]"
+    )
+
+    assert console.parse_listing(former) == console.parse_listing(LISTING)
+    assert console.parse_listing(LISTING)
 
 
 def test_the_console_shows_the_editable_entries_outside_the_prescription():
