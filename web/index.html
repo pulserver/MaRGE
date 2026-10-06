@@ -31,7 +31,6 @@
   .band { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   .band input { width: 110px; }
   .wide { grid-column: 1 / -1; }
-  #landing .primary-os { background: #2e7d32; border-color: #43a047; font-weight: 600; }
   .file { font-family: ui-monospace, monospace; }
 </style>
 </head>
@@ -41,37 +40,50 @@
   <h1>MaRGE on pulserver's virtual scanner</h1>
   <p>This page is MaRGE. pulserver, which designs, simulates and reconstructs each
   scan, runs in Docker on this computer, started by a launcher downloaded from this
-  page with the scanner settings below.</p>
+  page with the scanner settings below, which also set MaRGE's own Gradients and RF
+  fields.</p>
 
   <h2>Status</h2>
   <div class="checks" id="checks"></div>
-  <p>
-    <button id="open" class="primary" type="button" disabled>Open MaRGE</button>
-    <span id="open-why"></span>
-  </p>
   <p>When the browser asks whether this page may connect to devices on the local
   network, allow it: pulserver is such a device.</p>
-
-  <h2>Start pulserver</h2>
-  <p>The launcher checks that Docker is installed and running, downloads pulserver's
+  <h3>Launcher</h3>
+  <p>Run the launcher once on this computer; from then on <em>Start pulserver</em>
+  runs it from this page. The launcher checks that Docker is installed and running, downloads pulserver's
   image when it is not on this computer, updates it when a newer version is
-  published, and starts it with the scanner below, then opens this page. Run it
-  again after changing the scanner, or to update pulserver.</p>
+  published, and starts it with the scanner below. Run it again after changing the
+  scanner, or to update pulserver.</p>
   <div class="launcher" data-os="windows">
-    <p><button id="launcher-bat" class="primary-os" type="button">Download the launcher for Windows</button>
+    <p><button id="launcher-bat" type="button">Download the launcher for Windows</button>
     then double-click <span class="file">pulserver.bat</span>.</p>
   </div>
   <div class="launcher" data-os="unix">
-    <p><button id="launcher-sh" class="primary-os" type="button">Download the launcher for macOS and Linux</button>
+    <p><button id="launcher-sh" type="button">Download the launcher for macOS and Linux</button>
     then run it from a terminal in the download folder; macOS and Linux do not run a
     downloaded script by double-clicking it:</p>
     <code>sh pulserver.sh</code>
   </div>
   <p><a href="#" id="other-os">Launcher for another system</a></p>
 
+  <h2>Start pulserver</h2>
+  <p><em>Start pulserver</em> asks the launcher, once it has been run on this
+  computer, to start pulserver with the scanner below: it checks Docker, downloads
+  or updates pulserver's image and (re)starts it. The browser asks the first time
+  whether this page may open it. Press it again after changing the scanner, or to
+  update pulserver.</p>
+  <p>
+    <button id="start" type="button">Start pulserver</button>
+    <button id="open" class="primary" type="button" disabled>Open MaRGE</button>
+    <span id="open-why"></span>
+  </p>
+  <p id="starting" hidden>Starting pulserver: the first download of its image
+  takes a few minutes. If nothing happens, run the launcher above once; on macOS
+  and Linux its messages are in <span class="file">~/.pulserver/launcher.log</span>.</p>
+
   <h2>Scanner</h2>
-  <p>pulserver designs every sequence under these limits, which MaRGE's console does
-  not set. This page keeps them in the browser and writes them into the launcher.
+  <p>pulserver designs every sequence under these limits, and MaRGE's Gradients and
+  RF tabs show the fields they determine, which are edited here only. This page
+  keeps them in the browser and writes them into the launcher.
   <button id="reset" type="button">Restore the defaults</button></p>
   <form id="settings">
     <fieldset id="fields" style="border: 0; padding: 0; margin: 0;">
@@ -145,13 +157,15 @@ const DEFAULTS = {
   plugins: { sequences: "", recon: "" },
 };
 const STORED = "pulserver.scanner";
+// The settings pulserver was last started with from this page.
+const STARTED = "pulserver.started";
 const status = document.getElementById("status");
 const show = (text) => { status.textContent = text; };
 const here = (path) => new URL(path, location.href).href;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const $ = (id) => document.getElementById(id);
 
-window.marge = { ready: false, error: null, waiting: null, landing: null, log: [] };
+window.marge = { ready: false, error: null, waiting: null, landing: null, link: null, log: [] };
 const log = (line) => { window.marge.log.push(line); console.log(line); };
 
 // Opens and closes a connection to the console; false when nothing answers.
@@ -243,8 +257,11 @@ function read() {
 function store() {
   try { localStorage.setItem(STORED, JSON.stringify(read())); } catch (error) { /* kept in the form */ }
 }
-function stored() {
-  try { return JSON.parse(localStorage.getItem(STORED)) || DEFAULTS; } catch (error) { return DEFAULTS; }
+function stored(key = STORED, otherwise = DEFAULTS) {
+  try { return JSON.parse(localStorage.getItem(key)) || otherwise; } catch (error) { return otherwise; }
+}
+function started(settings) {
+  try { localStorage.setItem(STARTED, JSON.stringify(settings)); } catch (error) { /* not remembered */ }
 }
 form.oninput = store;
 form.onsubmit = (event) => event.preventDefault();
@@ -257,6 +274,7 @@ $("reset").onclick = () => { fill(DEFAULTS); store(); };
 // this page's address in place of its @NAME@ markers.
 async function launcher(file) {
   const settings = read();
+  started(settings);
   const lines = Object.entries(settings.limits).map(([key, value]) => `${key}: ${value}`);
   const page = location.origin + location.pathname;
   let text = await (await fetch(here(file))).text();
@@ -280,6 +298,23 @@ async function launcher(file) {
   link.download = file;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+}
+
+// The launcher, once run, opens pulserver: links, which carry the settings as
+// pulserver:start/x<limits>.x<sequences>.x<recon>, each part base64url-encoded
+// UTF-8 behind an x so that none is empty.
+const part = (text) => "x" + btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+  .replaceAll("+", "-").replaceAll("/", "_");
+
+function start() {
+  const settings = read();
+  started(settings);
+  const lines = Object.entries(settings.limits).map(([key, value]) => `${key}: ${value}`);
+  const limits = ["[Limits]", ...lines, "[Limits End]", ""].join("\n");
+  window.marge.link = "pulserver:start/"
+    + [limits, settings.plugins.sequences, settings.plugins.recon].map(part).join(".");
+  location.href = window.marge.link;
+  $("starting").hidden = false;
 }
 
 // The status -------------------------------------------------------------------
@@ -328,12 +363,13 @@ function versionRow() {
 }
 
 function render(console_answers) {
-  const rows = [check("Console", console_answers ? "ok" : "off",
+  const rows = [check("Docker", console_answers ? "ok" : "off",
     console_answers ? `pulserver is answering at ${address}.`
       : `pulserver is not answering at ${address}: start it with the launcher below.`)];
   if (console_answers) rows.push(versionRow());
   $("checks").replaceChildren(...rows.flat());
   $("open").disabled = !console_answers;
+  if (console_answers) $("starting").hidden = true;
   $("open-why").textContent = console_answers ? "" : "Once pulserver answers.";
   window.marge.landing = { console: console_answers, version };
 }
@@ -359,6 +395,7 @@ async function landing() {
   fill(stored());
   $("launcher-bat").onclick = () => launcher("pulserver.bat");
   $("launcher-sh").onclick = () => launcher("pulserver.sh");
+  $("start").onclick = start;
   // Only this computer's launcher is shown, until the other is asked for.
   const system = /Win/.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent)
     ? "windows" : "unix";
@@ -403,7 +440,10 @@ try {
   pyodide.unpackArchive(archive, "zip", { extractDir: sitePackages });
   show("Starting MaRGE…");
   pyodide.globals.set("CONSOLE_ADDRESS", address);
-  await pyodide.runPythonAsync("from marge.browser import boot\nawait boot.start(CONSOLE_ADDRESS)");
+  // MaRGE's own scanner fields take the limits pulserver was started with.
+  const scanner = named ? null : stored(STARTED, read()).limits;
+  pyodide.globals.set("SCANNER", scanner && pyodide.toPy(scanner));
+  await pyodide.runPythonAsync("from marge.browser import boot\nawait boot.start(CONSOLE_ADDRESS, SCANNER)");
   status.hidden = true;
   window.marge.ready = true;
 } catch (error) {

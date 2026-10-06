@@ -141,10 +141,12 @@ def test_a_landing_page_asks_the_console_whether_a_newer_image_is_published():
             tab.goto(f"{WEB}/index.html")
             tab.wait_for_function("window.marge.landing && window.marge.landing.version", timeout=60_000)
             level = tab.get_attribute("[data-check=Version]", "data-level")
+            docker = tab.get_attribute("[data-check=Docker]", "data-level")
             text = tab.inner_text("#checks")
             browser.close()
         server.shutdown()
 
+    assert docker == "ok"
     assert level == "warn"
     assert "run the launcher again" in text
 

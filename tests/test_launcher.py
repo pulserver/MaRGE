@@ -3,6 +3,7 @@
 The shell launcher runs where ``sh`` does, the batch launcher on Windows.
 """
 
+import base64
 import json
 import os
 import shutil
@@ -60,7 +61,13 @@ def _filled(name, home, sequences=""):
             .replace("@SEQUENCES@", sequences).replace("@RECON@", ""))
 
 
-def _run(tmp_path, local, published, daemon=True, sequences=""):
+def _link(limits, sequences="", recon=""):
+    """Return the pulserver: link the page's Start button opens."""
+    parts = (base64.urlsafe_b64encode(text.encode()).decode() for text in (limits, sequences, recon))
+    return "pulserver:start/" + ".".join("x" + part for part in parts)
+
+
+def _run(tmp_path, local, published, daemon=True, sequences="", link=None):
     state = tmp_path / "docker.json"
     state.write_text(json.dumps({"daemon": daemon, "local": local, "published": published, "calls": []}))
     bin_dir = tmp_path / "bin"
@@ -72,15 +79,20 @@ def _run(tmp_path, local, published, daemon=True, sequences=""):
         script = tmp_path / "pulserver.bat"
         script.write_text(_filled("pulserver.bat", home, sequences).replace("\n", "\r\n"), newline="")
         command = ["cmd", "/c", str(script)]
+        if link:
+            # Quoted, as the handler's registry command quotes it: cmd splits an
+            # unquoted argument at the base64 padding's "=".
+            command = f'cmd /s /c ""{script}" "{link}""'
     else:
         docker = bin_dir / "docker"
         docker.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{bin_dir / "docker.py"}" "$@"\n')
         docker.chmod(0o755)
         script = tmp_path / "pulserver.sh"
         script.write_text(_filled("pulserver.sh", home, sequences))
-        command = ["sh", str(script)]
+        command = ["sh", str(script)] + ([link] if link else [])
     env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-           "DOCKER_STATE": str(state), "PULSERVER_HOME": str(home)}
+           "DOCKER_STATE": str(state), "PULSERVER_HOME": str(home), "HOME": str(tmp_path),
+           "XDG_DATA_HOME": str(tmp_path / "share"), "XDG_CONFIG_HOME": str(tmp_path / "config")}
     done = subprocess.run(command, env=env, input="", capture_output=True, text=True, timeout=60)
     return done, json.loads(state.read_text())["calls"], home
 
@@ -147,3 +159,33 @@ def test_a_plugin_directory_is_mounted_where_the_console_searches_first(tmp_path
 
     assert done.returncode == 0, done.stdout + done.stderr
     assert f"{sequences}:/console/user/plugins:ro" in calls[-1]
+
+
+@needs_shell
+def test_the_launcher_copies_itself_where_the_start_button_s_handler_runs_it(tmp_path):
+    done, _, home = _run(tmp_path, "sha256:new", "sha256:new")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    copy = home / ("pulserver.bat" if os.name == "nt" else "pulserver.sh")
+    assert "[Limits]" in copy.read_text()
+    if os.name != "nt" and sys.platform != "darwin":
+        entry = (tmp_path / "share" / "applications" / "pulserver.desktop").read_text()
+        assert "MimeType=x-scheme-handler/pulserver;" in entry
+        assert f'Exec=sh "{home / "pulserver.sh"}" %u' in entry
+
+
+@needs_shell
+def test_a_start_link_starts_pulserver_with_the_settings_it_carries(tmp_path):
+    sequences = tmp_path / "my sequences"
+    sequences.mkdir()
+    limits = "[Limits]\nB0: 1.5\nmax_grad: 30\n[Limits End]\n"
+    done, calls, home = _run(tmp_path, "sha256:new", "sha256:new",
+                             link=_link(limits, str(sequences)))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert [line.strip() for line in (home / "limits.txt").read_text().splitlines()] == [
+        "[Limits]", "B0: 1.5", "max_grad: 30", "[Limits End]"]
+    run = calls[-1]
+    assert run[0] == "run"
+    assert f"{sequences}:/console/user/plugins:ro" in run
+    assert not any(":/console/user/recon:ro" in word for word in run)

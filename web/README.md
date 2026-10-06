@@ -19,19 +19,33 @@ downloaded script by double-clicking it. The page shows the launcher of the
 computer it is opened on, and the other on request. Neither needs anything but
 Docker.
 
+A launcher run so also copies itself to `~/.pulserver` and registers that copy
+as the handler of `pulserver:` links: a desktop entry for
+`x-scheme-handler/pulserver` on Linux, a background applet in
+`~/Applications/pulserver.app` on macOS, and the `pulserver` URL protocol under
+`HKCU\Software\Classes` on Windows. From then on the page's *Start pulserver*
+button opens `pulserver:start/x<limits>.x<sequences>.x<recon>`, each part the
+base64url encoding of the limits block or a plugin directory behind an `x`, and
+the handler starts pulserver with those settings, as a downloaded launcher
+would, without opening the page again. The browser asks once whether the page
+may open such links. On macOS and Linux the handler writes its messages to
+`~/.pulserver/launcher.log`; on Windows it shows them in a window, which stays
+open when it fails. A page can run no command on the computer itself, Pyodide's
+included, which is why the launcher has to be run once.
+
 The launcher stops with a message when Docker is not installed (naming its
 installation page) or not running. It then reports whether pulserver's image
 `ghcr.io/pulserver/pulserver` was absent and is downloaded, was outdated and is
 updated, or is up to date, comparing the local image with the published one
 through `docker pull`; when the registry does not answer it starts the image
 already on the computer. It (re)creates the container with the settings and
-opens the page, whose landing view shows whether the console answers on port
-8765 and unlocks *Open MaRGE* once it does. The launcher names the image's
-digest to the container, and on opening the page asks the console's `version`
-call whether the registry publishes a newer one; the registry does not answer
+opens the page, whose *Docker* row shows whether the console answers on port
+8765; *Open MaRGE*, under *Start pulserver*, is unlocked once it does. The
+launcher names the image's digest to the container, and on opening the page
+asks the console's `version` call whether the registry publishes a newer one; the registry does not answer
 pages, so the console asks it. Docker starts the container again
-with itself, so the launcher is needed again only to change the settings or to
-update pulserver. `docker rm -f pulserver` removes it. Browsers that restrict
+with itself, so *Start pulserver* is needed again only to change the settings
+or to update pulserver. `docker rm -f pulserver` removes it. Browsers that restrict
 public pages' access to local services ask the viewer's permission first.
 
 The image carries pulserver with BrainWeb's normal brain, the coils' field
@@ -52,6 +66,15 @@ writes them as the limits block of `pulserver console`, in seconds and the
 units named, to `~/.pulserver/limits.txt` (`%USERPROFILE%\.pulserver` on
 Windows; `PULSERVER_HOME` names another directory), mounted over the image's
 own.
+
+MaRGE's Gradients and RF tabs take the fields these settings determine from the
+settings of the launcher last downloaded, and do not let them be edited: each
+axis's maximum gradient is `max_grad`, the slew rate `max_slew`, the gradient
+raster `grad_raster_time`, the rise time the time `max_slew` takes to reach
+`max_grad` in as many steps of the raster, and the gradient delay zero; the
+RFPA de-blanking time is `rf_dead_time` and the RF dead time
+`rf_ringdown_time`; the Larmor frequency is the gyromagnetic ratio, `gamma`
+when an *Other limits* line names it, times B0.
 
 The two plugin directories name the user's own scanner-sequence plugins and
 reconstruction plugins, each `<name>.py`. Each is mounted read-only where the
