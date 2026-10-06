@@ -78,7 +78,11 @@ def _run(tmp_path, local, published, daemon=True, sequences="", link=None):
         (bin_dir / "docker.cmd").write_text(f'@"{sys.executable}" "%~dp0docker.py" %*\r\n')
         script = tmp_path / "pulserver.bat"
         script.write_text(_filled("pulserver.bat", home, sequences).replace("\n", "\r\n"), newline="")
-        command = ["cmd", "/c", str(script)] + ([link] if link else [])
+        command = ["cmd", "/c", str(script)]
+        if link:
+            # Quoted, as the handler's registry command quotes it: cmd splits an
+            # unquoted argument at the base64 padding's "=".
+            command = f'cmd /s /c ""{script}" "{link}""'
     else:
         docker = bin_dir / "docker"
         docker.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{bin_dir / "docker.py"}" "$@"\n')
