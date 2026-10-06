@@ -43,7 +43,7 @@ jobs:
         env:
           MARGE_WEB: http://127.0.0.1:8000
           MARGE_PULSERVER: ws://127.0.0.1:8766
-        run: python -m pytest tests/test_launcher.py tests/test_browser.py -v
+        run: python -m pytest tests/test_boot.py tests/test_launcher.py tests/test_browser.py -v
       - name: Show the services' logs
         if: always()
         run: |

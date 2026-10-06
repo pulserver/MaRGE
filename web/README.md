@@ -25,9 +25,9 @@ installation page) or not running. It then reports whether pulserver's image
 updated, or is up to date, comparing the local image with the published one
 through `docker pull`; when the registry does not answer it starts the image
 already on the computer. It (re)creates the container with the settings and
-opens the page, whose landing view shows whether the console answers on port
-8765 and unlocks *Open MaRGE* once it does. The launcher names the image's
-digest to the container, and on opening the page asks the console's `version`
+opens the page, whose *Docker* row shows whether the console answers on port
+8765; *Open MaRGE*, under *Start pulserver*, is unlocked once it does. The
+launcher names the image's digest to the container, and on opening the page asks the console's `version`
 call whether the registry publishes a newer one; the registry does not answer
 pages, so the console asks it. Docker starts the container again
 with itself, so the launcher is needed again only to change the settings or to
@@ -52,6 +52,15 @@ writes them as the limits block of `pulserver console`, in seconds and the
 units named, to `~/.pulserver/limits.txt` (`%USERPROFILE%\.pulserver` on
 Windows; `PULSERVER_HOME` names another directory), mounted over the image's
 own.
+
+MaRGE's Gradients and RF tabs take the fields these settings determine from the
+settings of the launcher last downloaded, and do not let them be edited: each
+axis's maximum gradient is `max_grad`, the slew rate `max_slew`, the gradient
+raster `grad_raster_time`, the rise time the time `max_slew` takes to reach
+`max_grad` in as many steps of the raster, and the gradient delay zero; the
+RFPA de-blanking time is `rf_dead_time` and the RF dead time
+`rf_ringdown_time`; the Larmor frequency is the gyromagnetic ratio, `gamma`
+when an *Other limits* line names it, times B0.
 
 The two plugin directories name the user's own scanner-sequence plugins and
 reconstruction plugins, each `<name>.py`. Each is mounted read-only where the
