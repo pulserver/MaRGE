@@ -19,6 +19,20 @@ downloaded script by double-clicking it. The page shows the launcher of the
 computer it is opened on, and the other on request. Neither needs anything but
 Docker.
 
+A launcher run so also copies itself to `~/.pulserver` and registers that copy
+as the handler of `pulserver:` links: a desktop entry for
+`x-scheme-handler/pulserver` on Linux, a background applet in
+`~/Applications/pulserver.app` on macOS, and the `pulserver` URL protocol under
+`HKCU\Software\Classes` on Windows. From then on the page's *Start pulserver*
+button opens `pulserver:start/x<limits>.x<sequences>.x<recon>`, each part the
+base64url encoding of the limits block or a plugin directory behind an `x`, and
+the handler starts pulserver with those settings, as a downloaded launcher
+would, without opening the page again. The browser asks once whether the page
+may open such links. On macOS and Linux the handler writes its messages to
+`~/.pulserver/launcher.log`; on Windows it shows them in a window, which stays
+open when it fails. A page can run no command on the computer itself, Pyodide's
+included, which is why the launcher has to be run once.
+
 The launcher stops with a message when Docker is not installed (naming its
 installation page) or not running. It then reports whether pulserver's image
 `ghcr.io/pulserver/pulserver` was absent and is downloaded, was outdated and is
@@ -27,11 +41,11 @@ through `docker pull`; when the registry does not answer it starts the image
 already on the computer. It (re)creates the container with the settings and
 opens the page, whose *Docker* row shows whether the console answers on port
 8765; *Open MaRGE*, under *Start pulserver*, is unlocked once it does. The
-launcher names the image's digest to the container, and on opening the page asks the console's `version`
-call whether the registry publishes a newer one; the registry does not answer
+launcher names the image's digest to the container, and on opening the page
+asks the console's `version` call whether the registry publishes a newer one; the registry does not answer
 pages, so the console asks it. Docker starts the container again
-with itself, so the launcher is needed again only to change the settings or to
-update pulserver. `docker rm -f pulserver` removes it. Browsers that restrict
+with itself, so *Start pulserver* is needed again only to change the settings
+or to update pulserver. `docker rm -f pulserver` removes it. Browsers that restrict
 public pages' access to local services ask the viewer's permission first.
 
 The image carries pulserver with BrainWeb's normal brain, the coils' field
