@@ -65,6 +65,14 @@ def test_a_boolean_edited_as_text_in_marges_tabs_travels_as_its_value():
         assert block.splitlines()[1] == f"fatsat: {sent}"
 
 
+def test_an_orientation_typed_in_marges_image_tab_is_read_whatever_its_case():
+    rotation, _ = console.prescription(" Coronal", 0.0, (1.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+
+    np.testing.assert_array_equal(rotation, console.ORIENTATIONS["coronal"])
+    with pytest.raises(ValueError, match="axial, coronal, sagittal"):
+        console.prescription("oblique", 0.0, (1.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+
+
 def test_a_listing_of_an_older_console_reads_the_same():
     former = LISTING.replace("[Protocol]", "[NimPulseqGUI Protocol]").replace(
         "[Protocol End]", "[NimPulseqGUI Protocol End]"

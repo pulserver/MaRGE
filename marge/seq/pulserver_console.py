@@ -187,7 +187,10 @@ def prescription(
         cross = np.array([[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]])
         theta = math.radians(angle_deg)
         turn = np.eye(3) + math.sin(theta) * cross + (1 - math.cos(theta)) * cross @ cross
-    rotation = turn @ ORIENTATIONS[orientation]
+    name = orientation.strip().lower()
+    if name not in ORIENTATIONS:
+        raise ValueError(f"orientation is one of {', '.join(ORIENTATIONS)}, not {orientation!r}")
+    rotation = turn @ ORIENTATIONS[name]
     return rotation, rotation.T @ np.asarray(dfov_mm, dtype=float)
 
 
