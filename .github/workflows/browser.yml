@@ -38,7 +38,9 @@ jobs:
       - name: Serve the page and pulserver's console
         run: |
           python -m http.server 8000 --bind 127.0.0.1 --directory web/dist > http.log 2>&1 &
-          docker run -d --name pulserver -p 127.0.0.1:8766:8765 pulserver
+          # One isochromat per voxel: the scan test checks MaRGE's round trip,
+          # and the console's default jittered voxels multiply the simulation.
+          docker run -d --name pulserver -p 127.0.0.1:8766:8765 pulserver --voxel point
       - name: Run MaRGE in Chromium against the console
         env:
           MARGE_WEB: http://127.0.0.1:8000
