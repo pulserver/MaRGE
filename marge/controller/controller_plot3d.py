@@ -10,6 +10,12 @@ from marge.seq.sequences import defaultsequences
 from marge.widgets.widget_plot3d import Plot3DWidget
 import marge.configs.hw_config as hw
 import pyqtgraph as pg
+from marge.seq.pulserver_console import console_mode
+
+#: Sign of the box's turn on the Transversal plane about MaRGE's axis 0. The box
+#: turns from axis 2 towards axis 1, about -axis 0; pulserver's console reads
+#: the angle as right-handed about the axis, so it takes the sign that says so.
+TRANSVERSAL_TURN = -1 if console_mode() else 1
 
 
 class Plot3DController(Plot3DWidget):
@@ -57,7 +63,7 @@ class Plot3DController(Plot3DWidget):
         self.roiFOV.setPen(pg.mkPen('r', width=3))
         self.roiFOV.hoverPen = pg.mkPen('g', width=3)
         self.roiFOV.addScaleHandle([1, 1], [0.5, 0.5])
-        # self.roiFOV.addRotateHandle([0, 0], [0.5, 0.5])
+        self.roiFOV.addRotateHandle([0, 0], [0.5, 0.5])
 
         # Manage colors
         for h in self.roiFOV.handles:
@@ -136,13 +142,13 @@ class Plot3DController(Plot3DWidget):
                 y_axis = 0
                 z_axis = 2
             elif self.title == "Coronal":
-                a = -1
+                a = 1
                 d = [1, 1] #[RL, IS]
                 x_axis = 2
                 y_axis = 0
                 z_axis = 1
             elif self.title == "Transversal":
-                a = 1
+                a = TRANSVERSAL_TURN
                 d = [1, 1] #[RL, PA]
                 x_axis = 2
                 y_axis = 1
@@ -156,9 +162,14 @@ class Plot3DController(Plot3DWidget):
             if self.seq_name in defaultsequences.keys():
                 roi_fov = np.array(defaultsequences[self.seq_name].mapVals['fov']) * 1e-2  # m
                 roi_pos = np.array(defaultsequences[self.seq_name].mapVals['dfov']) * 1e-3  # m
+                # The box is drawn turned only on the plane whose normal is the rotation axis
+                seq_vals = defaultsequences[self.seq_name].mapVals
+                axis = np.asarray(seq_vals.get('rotationAxis', [0, 0, 0]), dtype=float)
+                roi_angle = a * float(seq_vals.get('angle', 0.0)) if axis[z_axis] != 0 and np.count_nonzero(axis) == 1 else 0.0
             else:
                 roi_fov = img_fov
                 roi_pos = [0.0, 0.0, 0.0]
+                roi_angle = 0.0
 
             img_fov_px = np.array(np.shape(self.getProcessedImage()))[1::]
             img_fov_ru = [img_fov[x_axis], img_fov[y_axis]]
@@ -172,7 +183,7 @@ class Plot3DController(Plot3DWidget):
             # Set roi size and angle
             self.roiFOV.setPos(roi_pos_px, update=False)
             self.roiFOV.setSize(roi_fov_px, update=False)
-            self.roiFOV.setAngle(0.0, update=False)
+            self.roiFOV.setAngle(roi_angle, center=[0.5, 0.5], update=False)
             self.roiFOV.stateChanged()
 
             # Show the roi
@@ -212,7 +223,7 @@ class Plot3DController(Plot3DWidget):
             y_axis = 0
             z_axis = 1
         elif self.title == "Transversal":
-            a = 1
+            a = TRANSVERSAL_TURN
             d = [1, 1]
             x_axis = 2
             y_axis = 1

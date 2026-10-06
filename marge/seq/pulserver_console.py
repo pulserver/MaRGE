@@ -528,6 +528,9 @@ def _localizer_class(base: type, gateway: Any) -> type:
             self.addParameter(key="pulserverConsole", val=True)
             self.addParameter(key="fov", val=[25.6, 25.6, 25.6], units=1e-2)
             self.addParameter(key="dfov", val=[0.0, 0.0, 0.0], units=1e-3)
+            # Carried so that the localizer's FOV box is redrawn turned as planned.
+            self.addParameter(key="angle", val=0.0, units=1)
+            self.addParameter(key="rotationAxis", val=[1.0, 0.0, 0.0], units=1)
             self.files: list[bytes] = []
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
