@@ -14,10 +14,17 @@ phase_fov: float|typein|200.0|50.0|500.0|1.0|mm
 nslices: int|typein|5|1|64|1|
 slice_thickness: float|typein|4.0|1.0|20.0|0.5|mm
 slice_spacing: float|typein|1.0|0.0|20.0|0.5|mm
-sat_x: int|typein|0|0|3|1|
-sat_x_loc1: float|typein|-60.0|-500.0|500.0|1.0|mm
-sat_x_loc2: float|typein|60.0|-500.0|500.0|1.0|mm
-sat_x_thickness: float|typein|40.0|5.0|200.0|1.0|mm
+exsat_mask: int|typein|0|0|3|1|
+exsat1_normal_x: float|typein|1.0|-1.0|1.0|0.001|
+exsat1_normal_y: float|typein|0.0|-1.0|1.0|0.001|
+exsat1_normal_z: float|typein|0.0|-1.0|1.0|0.001|
+exsat1_loc: float|typein|-60.0|-500.0|500.0|1.0|mm
+exsat1_thickness: float|typein|40.0|5.0|200.0|1.0|mm
+exsat2_normal_x: float|typein|0.0|-1.0|1.0|0.001|
+exsat2_normal_y: float|typein|1.0|-1.0|1.0|0.001|
+exsat2_normal_z: float|typein|0.0|-1.0|1.0|0.001|
+exsat2_loc: float|typein|60.0|-500.0|500.0|1.0|mm
+exsat2_thickness: float|typein|40.0|5.0|200.0|1.0|mm
 [Protocol End]
 """
 
@@ -88,17 +95,29 @@ def test_a_turned_prescription_is_written_as_its_angles_from_the_starting_plane(
     assert changed == {"tilt_read": 12.0}
 
 
-def test_a_band_turned_on_is_read_at_its_location_and_written_back_held(entries, values):
-    values["sat_x"] = 2
+def test_a_band_turned_on_is_read_with_its_normal_and_written_back_held(entries, values):
+    values["exsat_mask"] = 2
 
-    ((axis, location, band),) = prescribe.bands(values, entries)
-    moved = geometry.Band(band.axis, 72.6, 35.2)
+    ((n, band),) = prescribe.bands(values, entries)
+    turned = geometry.Band(np.array([0.0, 0.6, 0.8]), 72.6, 35.2)
 
-    assert (axis, location, band) == ("x", "loc2", geometry.Band(0, 60.0, 40.0))
-    assert prescribe.band_written(axis, location, moved, values, entries) == {
-        "sat_x_loc2": 73.0,
-        "sat_x_thickness": 35.0,
+    assert n == 2 and np.allclose(band.normal, (0, 1, 0)) and (band.position, band.thickness) == (60.0, 40.0)
+    assert prescribe.band_written(n, turned, values, entries) == {
+        "exsat2_normal_y": 0.6,
+        "exsat2_normal_z": 0.8,
+        "exsat2_loc": 73.0,
+        "exsat2_thickness": 35.0,
     }
+
+
+def test_a_band_turned_about_a_point_on_it_keeps_that_point_on_its_centre_plane():
+    band = geometry.Band(np.array([0.0, 1.0, 0.0]), 20.0, 10.0)
+    point = np.array([5.0, 20.0, -3.0])
+
+    turned = band.turned((0, 0, 1), 30.0, point)
+
+    assert turned.position == pytest.approx(point @ turned.normal)
+    assert np.allclose(turned.normal, (-0.5, np.cos(np.radians(30.0)), 0.0))
 
 
 def test_values_are_read_and_written_under_the_keys_a_sequence_holds_them_by(entries, values):

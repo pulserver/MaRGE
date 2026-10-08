@@ -217,25 +217,29 @@ class Prescription:
 
 @dataclass(frozen=True)
 class Band:
-    """A saturation band: a slab perpendicular to one of the physical axes.
+    """A saturation band: a slab of any orientation.
 
     Attributes
     ----------
-    axis
-        0, 1 or 2 for x, y or z.
+    normal
+        Its unit normal along the physical axes.
     position
-        Its centre's coordinate along the axis.
+        Its centre's distance from the isocentre along the normal.
     thickness
-        Its thickness along the axis.
+        Its thickness along the normal.
     """
 
-    axis: int
+    normal: np.ndarray
     position: float
     thickness: float
 
-    @property
-    def normal(self) -> np.ndarray:
-        return np.eye(3)[self.axis]
+    def moved(self, distance: float) -> Band:
+        return replace(self, position=self.position + distance)
+
+    def turned(self, axis: Sequence[float], degrees: float, about: Sequence[float]) -> Band:
+        """Return the band turned about ``axis`` through the point ``about``, which stays on its centre plane."""
+        normal = turn(axis, degrees) @ self.normal
+        return replace(self, normal=normal, position=float(np.asarray(about, dtype=float) @ normal))
 
 
 @dataclass(frozen=True)

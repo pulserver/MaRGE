@@ -26,6 +26,9 @@ STACK, SLAB, HANDLE, TURN, END, BAND = "#ffd23f", "#ffd23f", "#3ddc97", "#ff6ad5
 #: How far past the field of view the turning handle sits, as a fraction of it.
 LEVER = 0.15
 
+#: How far along its trace a band's turning handle sits from its centre, in mm.
+BAND_LEVER = 60.0
+
 
 class Handle(pg.TargetItem):
     """A handle a view's prescription is dragged by, which tells its view when a drag starts and ends."""
@@ -154,8 +157,8 @@ class PlanView(SeriesView):
     last slice that drags slices onto that end or off it. Every view has a
     handle at the centre that moves the prescription in the view's plane, and
     one that turns it about the view's normal. Saturation bands show as
-    shaded areas, each with a handle that moves it along its axis and one
-    that sets its thickness.
+    shaded areas, each with a handle that moves it along its normal, one
+    that sets its thickness and one that turns it about the view's normal.
     """
 
     def __init__(self, workspace: Workspace, title: str) -> None:
@@ -213,28 +216,30 @@ class PlanView(SeriesView):
 
     def _draw_bands(self, plane: geometry.ImagePlane) -> None:
         shown = set()
-        for axis, location, band in self.workspace.bands():
+        for n, band in self.workspace.bands():
             area = geometry.band_area(band, plane)
             if not len(area):
                 continue
-            polygon = QtWidgets.QGraphicsPolygonItem(
-                _polygon(area + 0.5)
-            )
+            polygon = QtWidgets.QGraphicsPolygonItem(_polygon(area + 0.5))
             colour = pg.mkColor(BAND)
             colour.setAlpha(70)
             polygon.setBrush(pg.mkBrush(colour))
             polygon.setPen(pg.mkPen(BAND, width=1))
             self.plot.addItem(polygon)
             self.areas.append(polygon)
-            middle = plane.pixel(_on_view(plane, band, 0.0))
-            edge = plane.pixel(_on_view(plane, band, 0.5 * band.thickness))
-            for role, at, symbol in (("band", middle, "t"), ("width", edge, "s")):
-                key = (role, axis, location)
+            middle = _on_view(plane, band, 0.0)
+            places = (
+                ("band", middle, "t"),
+                ("width", _on_view(plane, band, 0.5 * band.thickness), "s"),
+                ("tilt", middle + BAND_LEVER * _along(plane, band), "o"),
+            )
+            for role, at, symbol in places:
+                key = (role, n)
                 handle = self.handles.get(key) or self._handle(key, symbol, BAND, 10)
-                handle.place(at + 0.5)
+                handle.place(plane.pixel(at) + 0.5)
                 shown.add(key)
         for key, handle in self.handles.items():
-            if isinstance(key, tuple) and key[0] in ("band", "width") and key not in shown:
+            if isinstance(key, tuple) and key[0] in ("band", "width", "tilt") and key not in shown:
                 handle.hide()
 
     @staticmethod
@@ -268,14 +273,19 @@ class PlanView(SeriesView):
         planned, bands, start = self._start
         point, plane = self._point(handle), self.plane
         role = handle.role
-        if isinstance(role, tuple) and role[0] in ("band", "width"):
-            _, axis, location = role
-            band = bands[(axis, location)]
-            if role[0] == "band":
-                band = geometry.Band(band.axis, band.position + (point - start) @ band.normal, band.thickness)
+        if isinstance(role, tuple) and role[0] in ("band", "width", "tilt"):
+            kind, n = role
+            band = bands[n]
+            if kind == "band":
+                band = band.moved((point - start) @ band.normal)
+            elif kind == "width":
+                band = geometry.Band(band.normal, band.position, 2.0 * abs(point @ band.normal - band.position))
             else:
-                band = geometry.Band(band.axis, band.position, 2.0 * abs(point @ band.normal - band.position))
-            self.workspace.place_band(axis, location, band)
+                pivot = _on_view(plane, band, 0.0)
+                a, b = start - pivot, point - pivot
+                degrees = math.degrees(math.atan2(plane.normal @ np.cross(a, b), a @ b))
+                band = band.turned(plane.normal, degrees, pivot)
+            self.workspace.place_band(n, band)
             return
         if planned is None:
             return
@@ -294,8 +304,8 @@ class PlanView(SeriesView):
             planned = planned.resized(2.0 * abs(offset @ read), 2.0 * abs(offset @ phase))
         self.workspace.prescribe(planned)
 
-    def _bands(self) -> list[tuple[tuple[str, str], geometry.Band]]:
-        return [((axis, location), band) for axis, location, band in self.workspace.bands()]
+    def _bands(self) -> list[tuple[int, geometry.Band]]:
+        return self.workspace.bands()
 
 
 class Workspace(QtWidgets.QWidget):
@@ -346,7 +356,7 @@ class Workspace(QtWidgets.QWidget):
         sequence = self._sequence()
         return None if sequence is None else sequence.planned()
 
-    def bands(self) -> list[tuple[str, str, geometry.Band]]:
+    def bands(self) -> list[tuple[int, geometry.Band]]:
         sequence = self._sequence()
         return [] if sequence is None else sequence.planned_bands()
 
@@ -356,10 +366,10 @@ class Workspace(QtWidgets.QWidget):
             self._shown(sequence, list(sequence.plan(planned)))
             self.redraw()
 
-    def place_band(self, axis: str, location: str, band: geometry.Band) -> None:
+    def place_band(self, n: int, band: geometry.Band) -> None:
         sequence = self._sequence()
         if sequence is not None:
-            self._shown(sequence, list(sequence.plan_band(axis, location, band)))
+            self._shown(sequence, list(sequence.plan_band(n, band)))
             self.redraw()
 
     def redraw(self) -> None:
@@ -376,6 +386,13 @@ def _polygon(points: np.ndarray):
     from PyQt5 import QtGui
 
     return QtGui.QPolygonF([QtCore.QPointF(float(x), float(y)) for x, y in points])
+
+
+def _along(plane: geometry.ImagePlane, band: geometry.Band) -> np.ndarray:
+    """Return the direction a band's centre plane crosses a view along; the view's across where they are parallel."""
+    along = np.cross(band.normal, plane.normal)
+    length = np.linalg.norm(along)
+    return plane.across if length < 1e-9 else along / length
 
 
 def _on_view(plane: geometry.ImagePlane, band: geometry.Band, offset: float) -> np.ndarray:
