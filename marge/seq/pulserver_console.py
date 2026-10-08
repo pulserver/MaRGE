@@ -633,9 +633,9 @@ def _plugin_class(
         def planned_bands(self) -> list:
             return prescribe.bands(self.mapVals, entries, _key)
 
-        def plan_band(self, axis: str, location: str, band) -> dict:
-            """Set the values that place a saturation band; return those that changed, by their keys."""
-            changed = prescribe.band_written(axis, location, band, self.mapVals, entries, _key)
+        def plan_band(self, n: int, band) -> dict:
+            """Set the values that place saturation band ``n``; return those that changed, by their keys."""
+            changed = prescribe.band_written(n, band, self.mapVals, entries, _key)
             self.mapVals.update(changed)
             return changed
 

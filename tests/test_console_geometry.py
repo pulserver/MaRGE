@@ -147,12 +147,23 @@ def test_turning_a_prescription_turns_it_about_its_centre():
 
 @pytest.mark.parametrize(("position", "covered"), [(0.0, 40.0), (120.0, 28.0), (400.0, 0.0)])
 def test_a_band_covers_the_part_of_a_view_within_its_slab(position, covered):
-    band = g.Band(axis=0, position=position, thickness=40.0)
+    band = g.Band(normal=np.array([1.0, 0.0, 0.0]), position=position, thickness=40.0)
 
     area = g.band_area(band, AXIAL)
     width = np.ptp(area[:, 0]) * 2.0 if len(area) else 0.0
 
     assert width == pytest.approx(covered)
+
+
+def test_an_oblique_band_covers_the_part_of_a_view_between_its_faces():
+    normal = np.array([1.0, 1.0, 0.0]) / np.sqrt(2.0)
+    band = g.Band(normal=normal, position=0.0, thickness=20.0)
+
+    area = g.band_area(band, AXIAL)
+    points = np.array([AXIAL.point(*p) for p in area])
+
+    assert len(area) >= 4
+    assert np.all(np.abs(points @ normal) <= 10.0 + 1e-9)
 
 
 def test_the_box_cut_of_a_stack_lies_on_the_view():

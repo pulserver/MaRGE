@@ -22,10 +22,17 @@ phase_fov: float|typein|200.0|50.0|500.0|1.0|mm
 nslices: int|typein|5|1|64|1|
 slice_thickness: float|typein|4.0|1.0|20.0|0.5|mm
 slice_spacing: float|typein|1.0|0.0|20.0|0.5|mm
-sat_y: int|typein|1|0|3|1|
-sat_y_loc1: float|typein|-60.0|-500.0|500.0|1.0|mm
-sat_y_loc2: float|typein|60.0|-500.0|500.0|1.0|mm
-sat_y_thickness: float|typein|40.0|5.0|200.0|1.0|mm
+exsat_mask: int|typein|2|0|3|1|
+exsat1_normal_x: float|typein|1.0|-1.0|1.0|0.001|
+exsat1_normal_y: float|typein|0.0|-1.0|1.0|0.001|
+exsat1_normal_z: float|typein|0.0|-1.0|1.0|0.001|
+exsat1_loc: float|typein|-60.0|-500.0|500.0|1.0|mm
+exsat1_thickness: float|typein|40.0|5.0|200.0|1.0|mm
+exsat2_normal_x: float|typein|0.0|-1.0|1.0|0.001|
+exsat2_normal_y: float|typein|1.0|-1.0|1.0|0.001|
+exsat2_normal_z: float|typein|0.0|-1.0|1.0|0.001|
+exsat2_loc: float|typein|60.0|-500.0|500.0|1.0|mm
+exsat2_thickness: float|typein|40.0|5.0|200.0|1.0|mm
 [Protocol End]
 """
 
@@ -82,8 +89,8 @@ class _Sequence:
     def planned_bands(self):
         return prescribe.bands(self.mapVals, self.entries)
 
-    def plan_band(self, axis, location, band):
-        changed = prescribe.band_written(axis, location, band, self.mapVals, self.entries)
+    def plan_band(self, n, band):
+        changed = prescribe.band_written(n, band, self.mapVals, self.entries)
         self.mapVals.update(changed)
         return changed
 
@@ -169,13 +176,27 @@ def test_a_corner_of_the_box_on_the_axial_view_resizes_the_field_of_view(workspa
     assert (workspace.sequence.mapVals["fov"], workspace.sequence.mapVals["phase_fov"]) == (240.0, 180.0)
 
 
-def test_a_band_is_shaded_on_the_views_across_it_and_dragged_along_its_axis(workspace):
+def test_a_band_is_shaded_on_the_views_across_it_and_dragged_along_its_normal(workspace):
     axial = workspace.views[0]
 
     assert axial.areas
-    _drag(axial, ("band", "y", "loc1"), (0.0, -30.0, 0.0))
+    _drag(axial, ("band", 2), (0.0, 30.0, 0.0))
 
-    assert workspace.sequence.mapVals["sat_y_loc1"] == -30.0
+    assert workspace.sequence.mapVals["exsat2_loc"] == 30.0
+
+
+def test_a_band_turned_on_a_view_turns_about_the_views_normal(workspace):
+    axial = workspace.views[0]
+    ((_, band),) = workspace.bands()
+    lever = axial.plane.point(*(np.array(axial.handles[("tilt", 2)].pos()) - 0.5))
+    centre = axial.plane.point(*(np.array(axial.handles[("band", 2)].pos()) - 0.5))
+
+    _drag(axial, ("tilt", 2), centre + geometry.turn(axial.plane.normal, 30.0) @ (lever - centre))
+
+    values = workspace.sequence.mapVals
+    normal = np.array([values[f"exsat2_normal_{a}"] for a in "xyz"])
+    assert normal @ (0.0, 0.0, 1.0) == pytest.approx(0.0, abs=1e-3)
+    assert abs(normal @ band.normal) == pytest.approx(np.cos(np.radians(30.0)), abs=2e-3)
 
 
 def test_a_value_typed_redraws_the_views(workspace):
