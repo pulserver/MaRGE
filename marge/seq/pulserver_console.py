@@ -276,7 +276,9 @@ class AsyncGateway:
 
     Under Pyodide a Qt handler cannot wait on the network, so every request is
     a coroutine; the connection is the browser's WebSocket there and the
-    ``websockets`` asyncio client elsewhere.
+    ``websockets`` asyncio client elsewhere. Requests may overlap, as two scans
+    started one after the other do: each reply reaches the request whose id it
+    carries, whichever request read it off the connection.
     """
 
     asynchronous = True
@@ -284,6 +286,8 @@ class AsyncGateway:
     def __init__(self, connection: Any) -> None:
         self._connection = connection
         self._next = 0
+        self._replies: dict[int, asyncio.Queue] = {}
+        self._reading = asyncio.Lock()
 
     @classmethod
     async def open(cls, address: str) -> AsyncGateway:
@@ -300,17 +304,31 @@ class AsyncGateway:
         """Send one request and return its last reply, as :meth:`Gateway.request` does."""
         self._next += 1
         ident = self._next
-        await self._connection.send(json.dumps({"id": ident, "call": call, **fields}))
-        while True:
-            reply = json.loads(await self._connection.recv())
-            if reply.get("id") != ident:
-                continue
-            if "error" in reply:
-                raise RuntimeError(reply["error"])
-            if call != "scan" or "done" in reply:
-                return reply
-            if on_message is not None:
-                on_message(reply)
+        self._replies[ident] = asyncio.Queue()
+        try:
+            await self._connection.send(json.dumps({"id": ident, "call": call, **fields}))
+            while True:
+                reply = await self._reply(ident)
+                if "error" in reply:
+                    raise RuntimeError(reply["error"])
+                if call != "scan" or "done" in reply:
+                    return reply
+                if on_message is not None:
+                    on_message(reply)
+        finally:
+            del self._replies[ident]
+
+    async def _reply(self, ident: int) -> dict:
+        """Return the next reply to request ``ident``, reading the connection, one reader at a time, until one has arrived."""
+        replies = self._replies[ident]
+        while replies.empty():
+            async with self._reading:
+                if not replies.empty():
+                    break
+                reply = json.loads(await self._connection.recv())
+                if reply.get("id") in self._replies:
+                    self._replies[reply["id"]].put_nowait(reply)
+        return replies.get_nowait()
 
     async def localizer(self, subject: str, coil: str | None = None) -> list[bytes]:
         """Start an exam on ``subject`` in ``coil`` and return its three-plane localizer, as :meth:`Gateway.localizer` does."""
