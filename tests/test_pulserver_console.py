@@ -526,7 +526,8 @@ def test_a_scan_asks_for_its_sound_only_with_a_speaker_and_plays_what_streams(mo
     pcm = np.round(32767 * left_right).astype("<i2").tobytes()
     answers = _scan_answers()
     answers["scan"]["messages"] = [
-        {"clock": 0.1, "duration": 2.0, "sound": base64.b64encode(pcm).decode(), "rate": 44100.0}
+        {"sound": base64.b64encode(pcm).decode(), "rate": 44100.0, "start": 0.0},
+        {"clock": 1.0, "duration": 2.0},
     ]
     entries = console.parse_listing(LISTING)
     silent = _Scripted(_scan_answers())

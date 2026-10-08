@@ -632,12 +632,13 @@ def _plugin_class(
                 if "preparing" in message:
                     self.prepared += 1
                     _show_preparing(plugin, message["preparing"])
+                elif "sound" in message:
+                    if SPEAKER is not None:
+                        pcm = np.frombuffer(base64.b64decode(message["sound"]), dtype="<i2")
+                        SPEAKER(pcm.reshape(-1, 2) / 32767.0, float(message["rate"]))
                 elif "clock" in message:
                     self.clock = (message["clock"], message["duration"])
                     _show_clock(plugin, *self.clock)
-                    if "sound" in message and SPEAKER is not None:
-                        pcm = np.frombuffer(base64.b64decode(message["sound"]), dtype="<i2")
-                        SPEAKER(pcm.reshape(-1, 2) / 32767.0, float(message["rate"]))
                 elif "dicom" in message:
                     files.append(base64.b64decode(message["dicom"]))
 
