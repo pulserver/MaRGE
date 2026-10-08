@@ -25,7 +25,7 @@ READ_FOV, PHASE_FOV, THICKNESS, SLICES, GAP, MODE = (
     "fov", "phase_fov", "slice_thickness", "nslices", "slice_spacing", "imaging_mode"
 )
 GEOMETRY = (READ_FOV, PHASE_FOV, SLICES, THICKNESS, GAP)
-#: The explicit saturation bands' mask: bit n - 1 turns band n on.
+#: The explicit saturation bands' mask, which the sequence declares: bit n - 1 for band n.
 BAND_MASK = "exsat_mask"
 
 #: The console's own values of the prescription, beside the plugin's entries.
@@ -105,10 +105,14 @@ def written(
 def bands(
     values: Mapping[str, Any], entries: Mapping[str, Mapping[str, Any]], key: Key = str
 ) -> list[tuple[int, geometry.Band]]:
-    """Return each explicit saturation band a sequence's values turn on, by its number, 1 to 6."""
+    """Return each explicit saturation band a sequence plays, by its number, 1 to 6.
+
+    The sequence declares which: its mask, a configuration entry, sets bit
+    ``n - 1`` for each band ``n``.
+    """
     if BAND_MASK not in entries:
         return []
-    mask = int(values[key(BAND_MASK)])
+    mask = int(entries[BAND_MASK]["value"])
     found = []
     for n in range(1, 7):
         if not mask & (1 << (n - 1)) or f"exsat{n}_loc" not in entries:

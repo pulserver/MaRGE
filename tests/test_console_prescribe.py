@@ -14,7 +14,7 @@ phase_fov: float|typein|200.0|50.0|500.0|1.0|mm
 nslices: int|typein|5|1|64|1|
 slice_thickness: float|typein|4.0|1.0|20.0|0.5|mm
 slice_spacing: float|typein|1.0|0.0|20.0|0.5|mm
-exsat_mask: int|typein|0|0|3|1|
+exsat_mask: config|3
 exsat1_normal_x: float|typein|1.0|-1.0|1.0|0.001|
 exsat1_normal_y: float|typein|0.0|-1.0|1.0|0.001|
 exsat1_normal_z: float|typein|0.0|-1.0|1.0|0.001|
@@ -95,8 +95,15 @@ def test_a_turned_prescription_is_written_as_its_angles_from_the_starting_plane(
     assert changed == {"tilt_read": 12.0}
 
 
-def test_a_band_turned_on_is_read_with_its_normal_and_written_back_held(entries, values):
-    values["exsat_mask"] = 2
+def test_every_band_the_sequence_declares_is_read_with_its_normal(entries, values):
+    found = prescribe.bands(values, entries)
+
+    assert [n for n, _ in found] == [1, 2]
+    assert np.allclose(found[0][1].normal, (1, 0, 0)) and found[0][1].position == -60.0
+
+
+def test_a_band_is_written_back_held_to_its_entries(entries, values):
+    entries["exsat_mask"]["value"] = 2
 
     ((n, band),) = prescribe.bands(values, entries)
     turned = geometry.Band(np.array([0.0, 0.6, 0.8]), 72.6, 35.2)
