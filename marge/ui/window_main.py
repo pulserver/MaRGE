@@ -28,6 +28,9 @@ from marge.controller.controller_sequence_list import SequenceListController
 from marge.controller.controller_sequence_inputs import SequenceInputsController
 from marge.widgets.widget_custom_and_protocol import CustomAndProtocolWidget
 from marge.controller.controller_postprocessing import ProcessingWindowController
+from marge.console.workspace import Workspace
+from marge.seq.pulserver_console import console_mode, register_workspace
+from marge.seq.sequences import defaultsequences
 
 
 class MainWindow(QMainWindow):
@@ -137,6 +140,16 @@ class MainWindow(QMainWindow):
         self.figures_layout.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.layout_right.addWidget(self.figures_layout)
 
+        # As the console of pulserver's virtual scanner, the workspace takes the
+        # figures' place: the views to prescribe on and the viewer of the series
+        self.workspace = None
+        if console_mode():
+            self.workspace = Workspace(self.prescribedSequence, self.sequence_inputs.showValues)
+            self.workspace.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self.figures_layout.hide()
+            self.layout_right.insertWidget(0, self.workspace, 1)
+            register_workspace(self.workspace)
+
         # Layout for output history
         self.layout_right_h = QHBoxLayout()
         self.layout_right.addLayout(self.layout_right_h)
@@ -153,12 +166,23 @@ class MainWindow(QMainWindow):
         self.input_table.setMinimumHeight(200)
         self.layout_right_h.addWidget(self.input_table, 1)
 
+        if self.workspace is not None:
+            self.sequence_list.currentTextChanged.connect(self.workspace.redraw)
+            self.history_list.itemClicked.connect(
+                lambda item: self.workspace.show_run(item.text().split(" | ", 1)[-1])
+            )
+
         # Create the post-processing toolbox
         self.post_gui = ProcessingWindowController(session=self.session, main=self)
 
         # Add printer
         self.printer = Printer(main=self)
 
+
+    def prescribedSequence(self):
+        """Return the selected sequence where the workspace prescribes it, else None."""
+        sequence = defaultsequences.get(self.sequence_list.getCurrentSequence())
+        return sequence if hasattr(sequence, "planned") else None
 
     def show(self):
         """Show the window; in a browser tab, filling the tab, so that the history below the figures is in view."""

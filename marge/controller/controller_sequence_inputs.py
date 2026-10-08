@@ -4,7 +4,7 @@
 :affiliation: MRILab, i3M, CSIC, Valencia, Spain
 
 """
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QFrame
 from marge.widgets.widget_sequence_inputs import SequenceInputsWidget
 from marge.seq.sequences import defaultsequences
 import numpy as np
@@ -31,7 +31,23 @@ class SequenceInputsController(SequenceInputsWidget):
         """
         super(SequenceInputsController, self).__init__(*args, **kwargs)
         self.seq_name = self.main.sequence_list.seq_name
+        self.fields = {}
         self.displayInputParameters()
+
+    def showValues(self, sequence, keys):
+        """
+        Show values of the sequence that changed elsewhere, such as in the console's prescribing views.
+
+        Args:
+            sequence: The sequence whose values changed.
+            keys (list): The keys of the values that changed.
+        """
+        for key in keys:
+            field = self.fields.get(sequence.mapNmspc.get(key))
+            if field is not None:
+                field.blockSignals(True)
+                field.setText(str(sequence.mapVals[key]))
+                field.blockSignals(False)
 
     def displayInputParameters(self):
         """
@@ -40,28 +56,33 @@ class SequenceInputsController(SequenceInputsWidget):
         self.seq_name = self.main.sequence_list.seq_name
         if hasattr(defaultsequences[self.seq_name], 'IMproperties'):
             props, tips = defaultsequences[self.seq_name].IMproperties
-            input_widgets_1 = self.createTab(props, tips)
-            self.addTab(input_widgets_1, "Image")
+            if props:
+                input_widgets_1 = self.createTab(props, tips)
+                self.addTab(input_widgets_1, "Image")
 
         if hasattr(defaultsequences[self.seq_name], 'RFproperties'):
             props, tips = defaultsequences[self.seq_name].RFproperties
-            input_widgets_2 = self.createTab(props, tips)
-            self.addTab(input_widgets_2, "RF")
+            if props:
+                input_widgets_2 = self.createTab(props, tips)
+                self.addTab(input_widgets_2, "RF")
 
         if hasattr(defaultsequences[self.seq_name], 'SEQproperties'):
             props, tips = defaultsequences[self.seq_name].SEQproperties
-            input_widgets_3 = self.createTab(props, tips)
-            self.addTab(input_widgets_3, "Sequence")
+            if props:
+                input_widgets_3 = self.createTab(props, tips)
+                self.addTab(input_widgets_3, "Sequence")
 
         if hasattr(defaultsequences[self.seq_name], 'OTHproperties'):
             props, tips = defaultsequences[self.seq_name].OTHproperties
-            input_widgets_4 = self.createTab(props, tips)
-            self.addTab(input_widgets_4, "Others")
+            if props:
+                input_widgets_4 = self.createTab(props, tips)
+                self.addTab(input_widgets_4, "Others")
 
         if hasattr(defaultsequences[self.seq_name], 'PROproperties'):
             props, tips = defaultsequences[self.seq_name].PROproperties
-            input_widgets_5 = self.createTab(props, tips)
-            self.addTab(input_widgets_5, "Tyger")
+            if props:
+                input_widgets_5 = self.createTab(props, tips)
+                self.addTab(input_widgets_5, "Tyger")
 
     def removeTabs(self):
         """
@@ -72,6 +93,7 @@ class SequenceInputsController(SequenceInputsWidget):
         self.removeTab(0)
         self.removeTab(0)
         self.removeTab(0)
+        self.fields = {}
 
     def createTab(self, inputs, tips):
         """
@@ -95,11 +117,18 @@ class SequenceInputsController(SequenceInputsWidget):
         for key in inputs.keys():
             input_layout = SequenceParameter([key, str(inputs[key][0])], tips[key][0], self.seq_name)
             layout.addLayout(input_layout)
+            self.fields[key] = input_layout.input_value
 
         # Add spacer to place all the items on the top
         layout.addStretch()
 
-        return widget
+        # Scroll the inputs that do not fit
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(widget)
+
+        return scroll
 
 
 class SequenceParameter(QHBoxLayout):
@@ -191,6 +220,10 @@ class SequenceParameter(QHBoxLayout):
                 sequence.mapVals[key] = inputNum[0]
             else:
                 sequence.mapVals[key] = inputNum
+
+        # Let the sequence follow the value, as the console's prescription does
+        if hasattr(sequence, 'parameterChanged'):
+            sequence.parameterChanged(key)
 
         # Print value into the console
         seqTime = sequence.sequenceTime()

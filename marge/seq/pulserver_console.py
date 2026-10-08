@@ -22,6 +22,7 @@ import io
 import json
 import math
 import os
+import re
 import sys
 import traceback
 from collections.abc import Callable, Mapping, Sequence
@@ -40,27 +41,16 @@ FOV_OFFSET = ("fov_offset_x", "fov_offset_y", "fov_offset_z")
 FOV_ROTATION = tuple(f"fov_rotation_{i}{j}" for i in (1, 2, 3) for j in (1, 2, 3))
 PRESCRIPTION = FOV_OFFSET + FOV_ROTATION
 
-#: Rotations from the logical readout, phase and slice axes to the physical ones.
-ORIENTATIONS = {
-    "axial": np.eye(3),
-    "coronal": np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]),
-    "sagittal": np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
-}
-
-#: The protocol's field-of-view entries along the logical readout, phase and
-#: slice axes, which MaRGE plans as its ``fov``, in cm.
-FOV_SIZE = ("fov", "phase_fov", "slice_thickness")
-
-#: MaRGE's names of the localizer's axial, coronal and sagittal planes, on
-#: which it plans the field of view.
+#: MaRGE's names of the localizer's axial, coronal and sagittal planes.
 PLANE_TITLES = ("Transversal", "Coronal", "Sagittal")
-#: The physical directions of MaRGE's planning axes 0, 1 and 2, as columns.
-#: MaRGE takes the across and down directions of its Transversal, Coronal and
-#: Sagittal images as its axes 2 and 1, 2 and 0, and 1 and 0; on the
-#: localizer's planes these are +x and +y, +x and -z, and +y and -z.
-MARGE_AXES = np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]])
-#: Centimetres per unit of a field-of-view entry.
-CM_PER_UNIT = {"mm": 0.1, "cm": 1.0, "m": 100.0}
+
+#: The keys MaRGE gives every sequence; a protocol entry of the same name is
+#: held under its name with this suffix.
+MARGE_KEYS = frozenset(("seqName", "toMaRGE", "pulserverConsole", "fov", "dfov", "angle", "rotationAxis"))
+RENAMED = "_protocol"
+
+#: A user entry, ``user<N>_value``, named by its ``user<N>_name`` description.
+USER_ENTRY = re.compile(r"user(\d+)_value")
 
 _EDITABLE = ("float", "int", "bool", "stringlist")
 
@@ -122,14 +112,20 @@ def parse_listing(reply: str) -> dict[str, dict[str, Any]]:
     return entries
 
 
+#: Entries a sequence states once, as the interpreter reads them at its start,
+#: and a console does not edit.
+STATED = ("imaging_mode",)
+
+
 def shown(entries: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    """Return the entries a console shows for editing: the editable ones outside the prescription."""
+    """Return the entries a console shows for editing: the editable ones outside the prescription and those the sequence states."""
     return [
         name
         for name, entry in entries.items()
         if entry["kind"] in _EDITABLE
         and entry.get("mode") != "off"
         and name not in PRESCRIPTION
+        and name not in STATED
     ]
 
 
@@ -165,33 +161,6 @@ def format_values(
     prescribed = [*np.asarray(offset_mm, dtype=float), *np.asarray(rotation).ravel()]
     lines += [f"{n}: {float(v)!r}" for n, v in zip(PRESCRIPTION, prescribed, strict=True)]
     return "\n".join([PROTOCOL_BEGIN, *lines, PROTOCOL_END]) + "\n"
-
-
-def prescription(
-    orientation: str,
-    angle_deg: float,
-    axis: Sequence[float],
-    dfov_mm: Sequence[float],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return the rotation from logical to physical axes and the offset along the logical axes, in mm.
-
-    The orientation's rotation is turned by ``angle_deg`` about the physical
-    ``axis``, right-handed, as MaRGE's FOV planning turns a box; ``dfov_mm``
-    is the field-of-view centre along the physical axes.
-    """
-    axis = np.asarray(axis, dtype=float)
-    norm = np.linalg.norm(axis)
-    turn = np.eye(3)
-    if norm > 0.0 and angle_deg != 0.0:
-        k = axis / norm
-        cross = np.array([[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]])
-        theta = math.radians(angle_deg)
-        turn = np.eye(3) + math.sin(theta) * cross + (1 - math.cos(theta)) * cross @ cross
-    name = orientation.strip().lower()
-    if name not in ORIENTATIONS:
-        raise ValueError(f"orientation is one of {', '.join(ORIENTATIONS)}, not {orientation!r}")
-    rotation = turn @ ORIENTATIONS[name]
-    return rotation, rotation.T @ np.asarray(dfov_mm, dtype=float)
 
 
 def subject_phantom(session: Mapping[str, Any]) -> str:
@@ -421,6 +390,17 @@ TOOLBAR: Any = None
 SPEAKER: Callable[[np.ndarray, float], None] | None = None
 
 
+#: The console's workspace, where each run's series is shown and the selected
+#: sequence prescribed; MaRGE shows a run's images itself without it.
+WORKSPACE: Any = None
+
+
+def register_workspace(workspace: Any) -> None:
+    """Record the console's workspace."""
+    global WORKSPACE
+    WORKSPACE = workspace
+
+
 def register_console(toolbar: Any) -> None:
     """Record MaRGE's sequence toolbar, through which background scans show their images."""
     global TOOLBAR
@@ -513,9 +493,21 @@ def _console_class(base: type) -> type:
         titles: Sequence[str] | None = None
 
         def sequenceAnalysis(self, mode=None) -> list:  # noqa: N802 -- MaRGE's API
+            """Save the run; show its images in the workspace as a series of the exam, else as MaRGE's output."""
             self.mode = mode
-            self.output = _image_output(dicom_images(self.files), self.titles)
+            self.output = [] if WORKSPACE is not None else _image_output(dicom_images(self.files), self.titles)
             self.saveRawData()
+            if WORKSPACE is not None and self.files:
+                from marge.console.series import Series
+
+                WORKSPACE.add(
+                    Series.of(
+                        len(WORKSPACE.series) + 1,
+                        str(self.mapVals["seqName"]),
+                        str(self.mapVals.get("fileName", "")),
+                        self.files,
+                    )
+                )
             return self.output
 
         def saveRawData(self) -> None:  # noqa: N802 -- MaRGE's API
@@ -563,19 +555,37 @@ def _localizer_class(base: type, gateway: Any) -> type:
     return Localizer
 
 
-def _marge_axes(rotation: np.ndarray) -> list[int]:
-    """Return the MaRGE axis closest to each of the logical readout, phase and slice axes."""
-    return [int(np.argmax(np.abs(MARGE_AXES.T @ column))) for column in np.asarray(rotation).T]
+def _key(name: str) -> str:
+    """Return the key of a protocol entry among a sequence's values."""
+    return f"{name}{RENAMED}" if name in MARGE_KEYS else name
+
+
+def _field(name: str) -> str:
+    """Return MaRGE's tab of a protocol entry: the image tab for what places and samples the image, the other tab for the user entries, the sequence tab for the rest."""
+    from marge.console import prescribe
+
+    if USER_ENTRY.fullmatch(name):
+        return "OTH"
+    if name in (*prescribe.GEOMETRY, prescribe.MODE, "nx", "ny"):
+        return "IM"
+    return "SEQ"
+
+
+def _label(name: str, entries: Mapping[str, Mapping[str, Any]]) -> str:
+    """Return the label of an entry: a user entry's name where the plugin gives one, with the entry's unit."""
+    user = USER_ENTRY.fullmatch(name)
+    named = entries.get(f"user{user.group(1)}_name") if user else None
+    label = str(named["value"]) if named and str(named["value"]).strip() else name
+    unit = entries[name].get("unit", "")
+    return f"{label} ({unit})" if unit else label
 
 
 def _plugin_class(
     base: type, gateway: Any, plugin: str, entries: Mapping[str, Mapping[str, Any]]
 ) -> type:
-    sizes = [name for name in FOV_SIZE if name in shown(entries)]
-    names = [name for name in shown(entries) if name not in sizes]
+    from marge.console import prescribe
 
-    def cm_per_unit(name: str) -> float:
-        return CM_PER_UNIT.get(entries[name].get("unit", ""), CM_PER_UNIT["mm"])
+    names = shown(entries)
 
     class PluginSequence(_console_class(base)):
         def __init__(self) -> None:
@@ -583,26 +593,26 @@ def _plugin_class(
             self.addParameter(key="seqName", string=plugin, val=plugin)
             self.addParameter(key="toMaRGE", val=True)
             self.addParameter(key="pulserverConsole", val=True)
+            # MaRGE's own field of view and centre, in cm and mm, which it keeps
+            # with each run; the prescription is the values below.
+            self.addParameter(key="fov", val=[0.0, 0.0, 0.0], units=1e-2)
+            self.addParameter(key="dfov", val=[0.0, 0.0, 0.0], units=1e-3)
+            for key, label, value, tip in (
+                (prescribe.ORIENTATION, "Orientation", "axial", "axial, coronal or sagittal: the plane the prescription is turned from"),
+                (prescribe.CENTRE, "Centre (mm)", [0.0, 0.0, 0.0], "Centre of the stack along the patient's L, P and S axes"),
+                (prescribe.INPLANE, "In-plane (deg)", 0.0, "Turn about the slice direction"),
+                (prescribe.TILT_READ, "Tilt about read (deg)", 0.0, "Tilt of the starting plane about its readout direction"),
+                (prescribe.TILT_PHASE, "Tilt about phase (deg)", 0.0, "Tilt of the starting plane about its phase direction"),
+            ):
+                self.addParameter(key=key, string=label, val=value, units=1, field="IM", tip=tip)
             for name in names:
-                entry = entries[name]
-                unit = entry.get("unit", "")
-                label = f"{name} ({unit})" if unit else name
-                self.addParameter(key=name, string=label, val=entry["value"], units=1, field="SEQ")
-            fov = [0.0, 0.0, 0.0]
-            for name, axis in zip(FOV_SIZE, _marge_axes(ORIENTATIONS["axial"]), strict=True):
-                if name in sizes:
-                    fov[axis] = entries[name]["value"] * cm_per_unit(name)
-            self.addParameter(key="fov", string="FOV (cm)", val=fov, units=1e-2, field="IM")
-            self.addParameter(
-                key="orientation", string="Orientation", val="axial", units=1, field="IM"
-            )
-            self.addParameter(
-                key="dfov", string="FOV centre (mm)", val=[0.0, 0.0, 0.0], units=1e-3, field="IM"
-            )
-            self.addParameter(key="angle", string="Angle (deg)", val=0.0, units=1, field="IM")
-            self.addParameter(
-                key="rotationAxis", string="Rotation axis", val=[1.0, 0.0, 0.0], units=1, field="IM"
-            )
+                self.addParameter(
+                    key=_key(name),
+                    string=_label(name, entries),
+                    val=entries[name]["value"],
+                    units=1,
+                    field=_field(name),
+                )
             self.files: list[bytes] = []
             self.clock = (0.0, 0.0)
             self.prepared = 0
@@ -610,19 +620,37 @@ def _plugin_class(
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
             return _run(self, gateway, self._scan)
 
+        def planned(self):
+            """Return the prescription the values state."""
+            return prescribe.prescription(self.mapVals, entries, _key)
+
+        def plan(self, planned) -> dict:
+            """Set the values that state ``planned``; return those that changed, by their keys."""
+            changed = prescribe.written(planned, self.mapVals, entries, _key)
+            self.mapVals.update(changed)
+            return changed
+
+        def planned_bands(self) -> list:
+            return prescribe.bands(self.mapVals, entries, _key)
+
+        def plan_band(self, n: int, band) -> dict:
+            """Set the values that place saturation band ``n``; return those that changed, by their keys."""
+            changed = prescribe.band_written(n, band, self.mapVals, entries, _key)
+            self.mapVals.update(changed)
+            return changed
+
+        def parameterChanged(self, key: str) -> None:  # noqa: N802 -- MaRGE's naming
+            """Redraw the prescription once a value is typed."""
+            if WORKSPACE is not None:
+                WORKSPACE.redraw()
+
         async def _scan(self) -> bool:
-            centre = MARGE_AXES @ np.asarray(self.mapVals["dfov"], dtype=float)
-            rotation, offset = prescription(
-                str(self.mapVals["orientation"]),
-                float(self.mapVals["angle"]),
-                MARGE_AXES @ np.asarray(self.mapVals["rotationAxis"], dtype=float),
-                centre,
-            )
-            values = {name: self.mapVals[name] for name in names}
-            for name, axis in zip(FOV_SIZE, _marge_axes(rotation), strict=True):
-                if name in sizes:
-                    values[name] = float(self.mapVals["fov"][axis]) / cm_per_unit(name)
-            block = format_values(values, entries, rotation, offset)
+            planned = self.planned()
+            rotation, centre = planned.rotation, planned.centre
+            self.mapVals["fov"] = [0.1 * planned.fov[0], 0.1 * planned.fov[1], 0.2 * planned.extent]
+            self.mapVals["dfov"] = [float(c) for c in centre]
+            values = {name: self.mapVals[_key(name)] for name in names}
+            block = format_values(values, entries, rotation, rotation.T @ centre)
             generated = await _answer(gateway.request("generate", plugin=plugin, block=block))
             if generated["status"] != 0:
                 raise RuntimeError(generated["reply"].strip())
