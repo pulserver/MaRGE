@@ -13,6 +13,7 @@ import types
 import numpy as np
 import pytest
 
+from marge.console import geometry
 from marge.seq import pulserver_console as console
 
 #: pulserver's listing of its gre2d test plugin, with a boolean, a string list
@@ -58,19 +59,11 @@ def test_a_listing_reads_as_the_interpreter_reads_it():
 
 def test_a_boolean_edited_as_text_in_marges_tabs_travels_as_its_value():
     entries = console.parse_listing(LISTING)
-    rotation = console.ORIENTATIONS["axial"]
+    rotation = np.eye(3)
 
     for text, sent in (("False", "false"), ("True", "true")):
         block = console.format_values({"fatsat": text}, entries, rotation, (0.0, 0.0, 0.0))
         assert block.splitlines()[1] == f"fatsat: {sent}"
-
-
-def test_an_orientation_typed_in_marges_image_tab_is_read_whatever_its_case():
-    rotation, _ = console.prescription(" Coronal", 0.0, (1.0, 0.0, 0.0), (0.0, 0.0, 0.0))
-
-    np.testing.assert_array_equal(rotation, console.ORIENTATIONS["coronal"])
-    with pytest.raises(ValueError, match="axial, coronal, sagittal"):
-        console.prescription("oblique", 0.0, (1.0, 0.0, 0.0), (0.0, 0.0, 0.0))
 
 
 def test_a_listing_of_an_older_console_reads_the_same():
@@ -92,7 +85,7 @@ def test_the_console_shows_the_editable_entries_outside_the_prescription():
 
 def test_a_value_block_carries_the_values_then_the_prescription_as_the_interpreter_sends_them():
     entries = console.parse_listing(LISTING)
-    rotation = console.ORIENTATIONS["coronal"]
+    rotation = geometry.BASES["coronal"]
 
     block = console.format_values(
         {"TE": 5000.0, "bandwidth": 1e5, "fatsat": True, "readout": "cartesian"},
@@ -113,23 +106,6 @@ def test_a_value_block_carries_the_values_then_the_prescription_as_the_interpret
     np.testing.assert_allclose(
         [float(prescribed[n]) for n in console.FOV_ROTATION], rotation.ravel()
     )
-
-
-@pytest.mark.parametrize("orientation", list(console.ORIENTATIONS))
-def test_an_unturned_prescription_is_the_orientation_and_its_centre_along_the_logical_axes(
-    orientation,
-):
-    rotation, offset = console.prescription(orientation, 0.0, (0, 0, 1), (10.0, -5.0, 2.0))
-
-    np.testing.assert_allclose(rotation, console.ORIENTATIONS[orientation])
-    np.testing.assert_allclose(rotation @ offset, [10.0, -5.0, 2.0])
-
-
-def test_a_prescription_turns_the_orientation_right_handed_about_the_axis():
-    rotation, _ = console.prescription("axial", 90.0, (0, 0, 2), (0.0, 0.0, 0.0))
-
-    np.testing.assert_allclose(rotation @ [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], atol=1e-12)
-    np.testing.assert_allclose(rotation.T @ rotation, np.eye(3), atol=1e-12)
 
 
 def test_the_subjects_name_else_its_id_names_the_phantom():
@@ -473,52 +449,43 @@ def test_a_run_is_saved_as_marge_saves_it_with_the_consoles_dicom_files_drawn_as
     assert (tmp_path / "dcm" / written[0]).read_bytes() == files[0]
 
 
-def test_marges_axes_are_those_it_plans_along_on_the_localizers_planes():
-    np.testing.assert_allclose(console.MARGE_AXES @ [0, 0, 1], [1, 0, 0])  # across all but sagittal
-    np.testing.assert_allclose(console.MARGE_AXES @ [0, 1, 0], [0, 1, 0])  # down the transversal
-    np.testing.assert_allclose(console.MARGE_AXES @ [1, 0, 0], [0, 0, -1])  # down the others
-    assert np.linalg.det(console.MARGE_AXES) == pytest.approx(1.0)
+def test_a_plugin_sequence_shows_its_prescription_and_geometry_in_the_image_tab_and_keeps_marges_own_fov_hidden():
+    sequence = console._plugin_class(_Base, _Scripted({}), "gre2d", console.parse_listing(LISTING))()
+
+    assert sequence.mapVals["fov_protocol"] == 250.0
+    assert sequence.mapVals["fov"] == [0.0, 0.0, 0.0]
+    assert sequence.mapVals["orientation"] == "axial"
+    assert sequence.mapVals["centre"] == [0.0, 0.0, 0.0]
+    assert sequence.mapVals["phase_fov"] == 200.0
 
 
-@pytest.mark.parametrize(
-    ("orientation", "fov", "sizes"),
-    [
-        ("axial", [5.0, 15.0, 30.0], (300.0, 150.0)),
-        ("coronal", [15.0, 5.0, 30.0], (300.0, 150.0)),
-        ("sagittal", [15.0, 30.0, 5.0], (300.0, 150.0)),
-    ],
-)
-def test_marge_plans_the_protocols_field_of_view_entries_as_its_fov_along_its_axes(
-    orientation, fov, sizes
-):
+def test_a_scan_sends_the_typed_geometry_the_centre_along_lps_and_its_offset_along_the_logical_axes():
     gateway = _Scripted(_scan_answers())
     sequence = console._plugin_class(_Base, gateway, "gre2d", console.parse_listing(LISTING))()
-
-    assert sequence.mapVals["fov"] == [0.0, 20.0, 25.0]
-    assert "phase_fov" not in sequence.mapVals
-    sequence.mapVals["orientation"] = orientation
-    sequence.mapVals["fov"] = fov
-    sequence.sequenceRun()
-
-    block = gateway.calls[0][1]["block"].splitlines()
-    assert f"fov: {sizes[0]!r}" in block
-    assert f"phase_fov: {sizes[1]!r}" in block
-    assert not any(line.startswith("slice_thickness") for line in block)
-
-
-def test_a_planned_centre_along_marges_axes_is_sent_along_the_physical_ones():
-    gateway = _Scripted(_scan_answers())
-    sequence = console._plugin_class(_Base, gateway, "gre2d", console.parse_listing(LISTING))()
-    sequence.mapVals["orientation"] = "coronal"
-    sequence.mapVals["dfov"] = [10.0, 20.0, 30.0]
+    sequence.mapVals.update(orientation="coronal", centre=[30.0, 20.0, -10.0], inplane=15.0)
+    sequence.mapVals["fov_protocol"] = 220.0
 
     sequence.sequenceRun()
 
     (_, generated), (_, scanned) = gateway.calls
+    rotation = geometry.rotation("coronal", 15.0, 0.0, 0.0)
     np.testing.assert_allclose(scanned["centre_mm"], [30.0, 20.0, -10.0])
+    np.testing.assert_allclose(np.reshape(scanned["rotation"], (3, 3)), rotation)
     prescribed = dict(line.split(": ") for line in generated["block"].splitlines()[1:-1])
+    assert prescribed["fov"] == "220.0"
     offset = [float(prescribed[name]) for name in console.FOV_OFFSET]
-    np.testing.assert_allclose(offset, console.ORIENTATIONS["coronal"].T @ [30.0, 20.0, -10.0])
+    np.testing.assert_allclose(offset, rotation.T @ [30.0, 20.0, -10.0])
+    assert sequence.mapVals["dfov"] == [30.0, 20.0, -10.0]
+
+
+def test_a_plan_writes_the_values_that_state_it_and_returns_those_that_changed():
+    sequence = console._plugin_class(_Base, _Scripted({}), "gre2d", console.parse_listing(LISTING))()
+    planned = sequence.planned().moved((0.0, 12.34, 0.0)).resized(180.04, 200.0)
+
+    changed = sequence.plan(planned)
+
+    assert changed == {"centre": [0.0, 12.3, 0.0], "fov_protocol": 180.0}
+    assert sequence.mapVals["fov_protocol"] == 180.0
 
 
 def test_a_scan_asks_for_its_sound_only_with_a_speaker_and_plays_what_streams(monkeypatch):
@@ -542,3 +509,27 @@ def test_a_scan_asks_for_its_sound_only_with_a_speaker_and_plays_what_streams(mo
     (samples, rate), = played
     np.testing.assert_allclose(samples, left_right, atol=1 / 32767)
     assert rate == 44100.0
+
+
+def test_the_image_tab_holds_the_geometry_the_other_tab_the_user_entries_and_the_sequence_tab_the_rest():
+    listing = LISTING.replace(
+        "[Protocol End]",
+        "nslices: int|typein|1|1|64|1|\nRy: int|typein|1|1|4|1|\nflip: float|typein|12.0|1.0|90.0|1.0|deg\n"
+        "user3_value: float|typein|2.0|0.0|10.0|0.1|ms\nuser3_name: description|Spoiler length\n[Protocol End]",
+    )
+    entries = console.parse_listing(listing)
+
+    fields = {name: console._field(name) for name in console.shown(entries)}
+    labels = {name: console._label(name, entries) for name in ("user3_value", "fov", "nx")}
+
+    assert {n for n, f in fields.items() if f == "IM"} == {"fov", "phase_fov", "nx", "nslices"}
+    assert {n for n, f in fields.items() if f == "OTH"} == {"user3_value"}
+    assert {"Ry", "flip", "TE", "bandwidth"} <= {n for n, f in fields.items() if f == "SEQ"}
+    assert labels == {"user3_value": "Spoiler length (ms)", "fov": "fov (mm)", "nx": "nx"}
+
+
+def test_an_imaging_mode_the_sequence_states_is_not_offered_for_editing():
+    entries = console.parse_listing(LISTING.replace("[Protocol]\n", "[Protocol]\nimaging_mode: stringlist|1|2d|3d\n"))
+
+    assert "imaging_mode" in entries
+    assert "imaging_mode" not in console.shown(entries)

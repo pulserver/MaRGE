@@ -217,6 +217,8 @@ json.dumps(None)
     assert history[0].split(" | ")[1].startswith("Localizer.")
     assert localizer == 3
     assert names == sorted(["Localizer", *_console_plugins()])
+    views = _python(page, PRELUDE + "json.dumps([[v.series.label, v.index] for v in main.workspace.views])")
+    assert views == [["S1 Localizer", 0], ["S1 Localizer", 1], ["S1 Localizer", 2]]
 
 
 def test_the_console_offers_acquire_and_the_localizer_and_not_what_needs_marcos(page):
@@ -261,9 +263,28 @@ json.dumps([len(sequence.files), sequence.prepared, sequence.clock, console.SPEA
 
     assert history[1].split(" | ")[1].startswith("gre2d.")
     assert files >= 1
+    shown = _python(page, PRELUDE + "json.dumps(main.workspace.viewer.series.description)")
+    assert shown == "gre2d"
     assert prepared >= 1
     assert clock[0] == pytest.approx(clock[1]) and clock[1] > 0.0
     assert played == pytest.approx(clock[1], rel=0.01)
+
+
+def test_a_slice_count_typed_in_the_image_tab_redraws_the_stack_across_the_localizer(page):
+    lines = _python(
+        page,
+        PRELUDE
+        + """
+main.sequence_list.setCurrentText("gre2d")
+field = main.sequence_inputs.fields["nslices"]
+field.setText("7")
+coronal = main.workspace.views[1]
+x, _ = coronal.traces.getData()
+json.dumps(0 if x is None else len(x) // 2)
+""",
+    )
+
+    assert lines == 7
 
 
 def test_another_subject_in_the_session_window_opens_another_exam_on_its_localizer(page):
