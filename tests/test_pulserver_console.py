@@ -307,6 +307,42 @@ def test_an_asynchronous_scan_request_passes_its_clock_on_and_returns_when_done(
     assert seen == [{"id": 1, "clock": 0.5, "duration": 1.0}]
 
 
+class _InterleavedSocket:
+    """A console connection answering two scans at once, their replies interleaved, as a console answers overlapping requests."""
+
+    def __init__(self):
+        self.sent = []
+        self._replies = asyncio.Queue()
+
+    async def send(self, text):
+        ident = json.loads(text)["id"]
+        self.sent.append(ident)
+        if len(self.sent) == 2:
+            for message in ({"clock": 0.5}, {"dicom": "a"}, {"done": 0}):
+                for which in self.sent:
+                    self._replies.put_nowait({"id": which, **message})
+
+    async def recv(self):
+        return json.dumps(await self._replies.get())
+
+
+def test_two_scans_requested_at_once_each_receive_their_own_replies_to_their_end():
+    gateway = console.AsyncGateway(_InterleavedSocket())
+    seen = {1: [], 2: []}
+
+    async def both():
+        return await asyncio.gather(
+            gateway.request("scan", on_message=seen[1].append, design="d1"),
+            gateway.request("scan", on_message=seen[2].append, design="d2"),
+        )
+
+    done = asyncio.run(asyncio.wait_for(both(), timeout=5.0))
+
+    assert done == [{"id": 1, "done": 0}, {"id": 2, "done": 0}]
+    for ident, messages in seen.items():
+        assert messages == [{"id": ident, "clock": 0.5}, {"id": ident, "dicom": "a"}]
+
+
 def test_the_listings_are_each_plugins_entries():
     gateway = _Scripted(
         {
