@@ -22,7 +22,7 @@ phase_fov: float|typein|200.0|50.0|500.0|1.0|mm
 nslices: int|typein|5|1|64|1|
 slice_thickness: float|typein|4.0|1.0|20.0|0.5|mm
 slice_spacing: float|typein|1.0|0.0|20.0|0.5|mm
-exsat_mask: int|typein|2|0|3|1|
+exsat_mask: config|2
 exsat1_normal_x: float|typein|1.0|-1.0|1.0|0.001|
 exsat1_normal_y: float|typein|0.0|-1.0|1.0|0.001|
 exsat1_normal_z: float|typein|0.0|-1.0|1.0|0.001|
