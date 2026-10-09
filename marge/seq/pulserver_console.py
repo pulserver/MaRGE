@@ -54,6 +54,10 @@ USER_ENTRY = re.compile(r"user(\d+)_value")
 
 _EDITABLE = ("float", "int", "bool", "stringlist")
 
+#: Milliseconds per wire unit of the times the console shows in ms, as the
+#: scanner's interpreter shows them.
+_MS_PER = {"us": 1e-3, "s": 1e3}
+
 
 def console_mode() -> bool:
     """Whether MaRGE runs as the console of pulserver's virtual scanner."""
@@ -65,7 +69,7 @@ def parse_listing(reply: str) -> dict[str, dict[str, Any]]:
 
     Each entry holds its ``kind`` and ``value``; a number also its ``mode``,
     ``min``, ``max``, ``step``, ``unit`` and dropdown ``options``, and a
-    stringlist its ``options``.
+    stringlist its ``options``. A time listed in us or s reads in float ms.
     """
     entries: dict[str, dict[str, Any]] = {}
     inside = False
@@ -93,6 +97,8 @@ def parse_listing(reply: str) -> dict[str, dict[str, Any]]:
                 "unit": unit,
                 "options": [cast(o) for o in options if o],
             }
+            if unit in _MS_PER:
+                entries[name] = _in_ms(entries[name])
         elif kind == "bool":
             entries[name] = {"kind": kind, "value": fields[0] == "true"}
         elif kind == "stringlist":
@@ -110,6 +116,26 @@ def parse_listing(reply: str) -> dict[str, dict[str, Any]]:
                 "value": "|".join(fields).replace("\\n", "\n"),
             }
     return entries
+
+
+def _in_ms(entry: dict[str, Any]) -> dict[str, Any]:
+    """Return a time entry restated in float ms, with its wire kind and ms per wire unit under ``wire``.
+
+    Negative dropdown options are the interpreter's markers rather than times
+    and keep their values.
+    """
+    scale = _MS_PER[entry["unit"]]
+    return {
+        **entry,
+        "kind": "float",
+        "value": entry["value"] * scale,
+        "min": entry["min"] * scale,
+        "max": entry["max"] * scale,
+        "step": entry["step"] * scale,
+        "unit": "ms",
+        "options": [o * scale if o >= 0 else float(o) for o in entry["options"]],
+        "wire": (entry["kind"], scale),
+    }
 
 
 #: Entries a sequence states once, as the interpreter reads them at its start,
@@ -137,8 +163,9 @@ def format_values(
 ) -> str:
     """Return the value block of a request: the given values, then the prescription.
 
-    A stringlist travels as its option index and a boolean as ``true`` or
-    ``false``, as the interpreter sends them. ``rotation`` takes the logical
+    A stringlist travels as its option index, a boolean as ``true`` or
+    ``false`` and a time in its listed unit and kind, as the interpreter sends
+    them. ``rotation`` takes the logical
     readout, phase and slice axes to the physical ones, and ``offset_mm`` is the
     field-of-view offset along the logical axes, in mm.
     """
@@ -153,6 +180,10 @@ def format_values(
             text = "true" if on else "false"
         elif entry["kind"] == "stringlist":
             text = str(entry["options"].index(value))
+        elif "wire" in entry:
+            kind, scale = entry["wire"]
+            sent = float(value) / scale
+            text = str(round(sent)) if kind == "int" else repr(sent)
         elif entry["kind"] == "int":
             text = str(int(value))
         else:

@@ -38,14 +38,15 @@ def test_a_listing_reads_as_the_interpreter_reads_it():
     entries = console.parse_listing(LISTING)
 
     assert entries["TE"] == {
-        "kind": "int",
+        "kind": "float",
         "mode": "dropdown",
-        "value": 8000,
-        "min": 1000,
-        "max": 80000,
-        "step": 10,
-        "unit": "us",
-        "options": [-2, 5000, 8000],
+        "value": 8.0,
+        "min": 1.0,
+        "max": 80.0,
+        "step": 0.01,
+        "unit": "ms",
+        "options": [-2.0, 5.0, 8.0],
+        "wire": ("int", 1e-3),
     }
     assert entries["bandwidth"]["value"] == 250000.0
     assert entries["fatsat"] == {"kind": "bool", "value": False}
@@ -55,6 +56,16 @@ def test_a_listing_reads_as_the_interpreter_reads_it():
         "options": ["cartesian", "radial"],
     }
     assert entries["note"]["value"] == "two\nlines"
+
+
+def test_a_time_shown_in_ms_travels_in_the_unit_and_kind_it_is_listed_in():
+    entries = console.parse_listing(
+        LISTING.replace("[Protocol End]", "TR: float|typein|1.5|0.1|10.0|0.1|s\n[Protocol End]")
+    )
+
+    assert console._label("TE", entries) == "TE (ms)"
+    block = console.format_values({"TE": 7.5, "TR": 1200.0}, entries, np.eye(3), (0.0, 0.0, 0.0))
+    assert block.splitlines()[1:3] == ["TE: 7500", "TR: 1.2"]
 
 
 def test_a_boolean_edited_as_text_in_marges_tabs_travels_as_its_value():
@@ -88,7 +99,7 @@ def test_a_value_block_carries_the_values_then_the_prescription_as_the_interpret
     rotation = geometry.BASES["coronal"]
 
     block = console.format_values(
-        {"TE": 5000.0, "bandwidth": 1e5, "fatsat": True, "readout": "cartesian"},
+        {"TE": 5.0, "bandwidth": 1e5, "fatsat": True, "readout": "cartesian"},
         entries,
         rotation,
         (1.5, -2.0, 3.0),
@@ -330,7 +341,7 @@ def test_the_listings_are_each_plugins_entries():
     found = console.listings(gateway)
 
     assert list(found) == ["gre2d", "broken"]
-    assert found["gre2d"]["TE"]["value"] == 8000
+    assert found["gre2d"]["TE"]["value"] == 8.0
 
 
 def _scan_answers(status=0):
