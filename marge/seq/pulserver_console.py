@@ -523,6 +523,12 @@ def _console_class(base: type) -> type:
 
         titles: Sequence[str] | None = None
 
+        def sequenceInfo(self) -> None:  # noqa: N802 -- MaRGE's API
+            print(f"{self.mapVals['seqName']}: run by pulserver's virtual scanner")
+
+        def sequenceTime(self) -> float:  # noqa: N802 -- MaRGE's API
+            return 0.0
+
         def sequenceAnalysis(self, mode=None) -> list:  # noqa: N802 -- MaRGE's API
             """Save the run; show its images in the workspace as a series of the exam, else as MaRGE's output."""
             self.mode = mode
@@ -647,6 +653,42 @@ def _plugin_class(
             self.files: list[bytes] = []
             self.clock = (0.0, 0.0)
             self.prepared = 0
+            self.scan_time = 0.0
+
+        def sequenceTime(self) -> float:  # noqa: N802 -- MaRGE's API
+            """Return the scan time pulserver states for the values, in minutes; 0 where it states none.
+
+            On an asynchronous gateway the request runs in the background: the
+            last scan time known is returned, and the new one printed once it arrives.
+            """
+            if not getattr(gateway, "asynchronous", False):
+                self.scan_time = asyncio.run(self._scan_time())
+                return self.scan_time
+
+            async def background() -> None:
+                scan_time = await self._scan_time()
+                if scan_time != self.scan_time:
+                    self.scan_time = scan_time
+                    print(f"Sequence time {scan_time:0.1f} minutes")
+
+            asyncio.ensure_future(background())
+            return self.scan_time
+
+        async def _scan_time(self) -> float:
+            """Ask pulserver to validate the values; return the scan time it states, in minutes."""
+            _, block = self._block()
+            reply = await _answer(gateway.request("validate", plugin=plugin, block=block))
+            word, _, seconds = reply["reply"].partition("\n")[0].partition(" ")
+            if reply["status"] != 0 or word != "VALID" or seconds in ("", "?"):
+                return 0.0
+            return float(seconds) / 60.0
+
+        def _block(self):
+            """Return the prescription the values state and the value block that sends it."""
+            planned = self.planned()
+            rotation, centre = planned.rotation, planned.centre
+            values = {name: self.mapVals[_key(name)] for name in names}
+            return planned, format_values(values, entries, rotation, rotation.T @ centre)
 
         def sequenceRun(self, plotSeq=0, demo=False) -> bool:  # noqa: N802 -- MaRGE's API
             return _run(self, gateway, self._scan)
@@ -676,12 +718,10 @@ def _plugin_class(
                 WORKSPACE.redraw()
 
         async def _scan(self) -> bool:
-            planned = self.planned()
+            planned, block = self._block()
             rotation, centre = planned.rotation, planned.centre
             self.mapVals["fov"] = [0.1 * planned.fov[0], 0.1 * planned.fov[1], 0.2 * planned.extent]
             self.mapVals["dfov"] = [float(c) for c in centre]
-            values = {name: self.mapVals[_key(name)] for name in names}
-            block = format_values(values, entries, rotation, rotation.T @ centre)
             generated = await _answer(gateway.request("generate", plugin=plugin, block=block))
             if generated["status"] != 0:
                 raise RuntimeError(generated["reply"].strip())
