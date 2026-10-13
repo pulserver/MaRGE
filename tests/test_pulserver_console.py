@@ -545,3 +545,32 @@ def test_an_imaging_mode_the_sequence_states_is_not_offered_for_editing():
 
     assert "imaging_mode" in entries
     assert "imaging_mode" not in console.shown(entries)
+
+
+def _validated(status_line):
+    return {"validate": {"reply": {"status": 0, "reply": f"{status_line}\nINFO \n[Protocol]\n[Protocol End]\n"}}}
+
+
+@pytest.mark.parametrize(("status_line", "minutes"), [("VALID 90.0", 1.5), ("VALID ?", 0.0), ("INVALID", 0.0)])
+def test_a_plugin_sequence_states_the_scan_time_pulserver_validates_in_minutes(status_line, minutes):
+    gateway = _Scripted(_validated(status_line))
+    sequence = console._plugin_class(_Base, gateway, "gre2d", console.parse_listing(LISTING))()
+
+    assert sequence.sequenceTime() == minutes
+    ((call, fields),) = gateway.calls
+    assert (call, fields["plugin"]) == ("validate", "gre2d")
+    assert "TE: 8000" in fields["block"]
+
+
+def test_through_an_asynchronous_gateway_the_scan_time_is_printed_once_pulserver_states_it(capsys):
+    gateway = _AsyncScripted(_validated("VALID 120.0"))
+    sequence = console._plugin_class(_Base, gateway, "gre2d", console.parse_listing(LISTING))()
+
+    async def run():
+        known = sequence.sequenceTime()
+        await asyncio.sleep(0)
+        return known
+
+    assert asyncio.run(run()) == 0.0
+    assert sequence.scan_time == 2.0
+    assert "Sequence time 2.0 minutes" in capsys.readouterr().out
